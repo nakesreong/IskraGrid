@@ -37,7 +37,7 @@ class IskraEngine private constructor(context: Context) {
     // Smart Shutdown State Machine
     @Volatile var shutdownPhase: String = "IDLE" // IDLE, UNLOADING, COOLDOWN, KILLING, STOPPED, ERROR
     @Volatile var shutdownRemainingSec: Int = 0
-    @Volatile var shutdownTotalSec: Int = 30
+    @Volatile var shutdownTotalSec: Int = 20
     @Volatile var shutdownMessage: String = ""
     @Volatile private var shutdownCancelled: Boolean = false
 
@@ -50,7 +50,7 @@ class IskraEngine private constructor(context: Context) {
     var modeStartMs: Long = prefs.getLong("mode_start_ms", System.currentTimeMillis() - 25 * 60_000L)
     var outageStartMs: Long = prefs.getLong("outage_start_ms", System.currentTimeMillis())
     var totalMotoSeconds: Long = prefs.getLong("total_moto_seconds", 2820L)
-    var cooldownConfigSec: Int = prefs.getInt("cooldown_sec", 30)
+    var cooldownConfigSec: Int = prefs.getInt("cooldown_sec", 20)
 
     var onStateUpdated: ((JSONObject) -> Unit)? = null
 
@@ -597,17 +597,21 @@ class IskraEngine private constructor(context: Context) {
     fun startSmartRatoShutdown(customCooldownSec: Int? = null) {
         if (shutdownPhase == "UNLOADING" || shutdownPhase == "COOLDOWN" || shutdownPhase == "KILLING") return
         val waitSec = (customCooldownSec ?: cooldownConfigSec).coerceIn(5, 120)
+        cooldownConfigSec = waitSec
+        prefs.edit().putInt("cooldown_sec", waitSec).apply()
         shutdownTotalSec = waitSec
         shutdownRemainingSec = waitSec
         shutdownCancelled = false
         shutdownPhase = "UNLOADING"
-        shutdownMessage = "Фаза 1: Сбрасываем нагрузку зарядки Oukitel и socket_2..."
+        shutdownMessage = "Фаза 1: Отключаем умную розетку линии Rato (socket_2)..."
         notifySnapshot()
 
         executor.execute {
             try {
-                oukitel.setAcChargingLimit(0)
-                if (smartLife.state.socket2.online && smartLife.state.socket2.switchOn) {
+                // Отключаем только умную розетку socket_2, не сбрасывая выбранный лимит зарядки на станции
+                val s2Off = smartLife.sendSwitchCommand("socket_2", "switch_1", false)
+                if (!s2Off) {
+                    try { Thread.sleep(300L) } catch (_: Exception) {}
                     smartLife.sendSwitchCommand("socket_2", "switch_1", false)
                 }
 
@@ -620,7 +624,7 @@ class IskraEngine private constructor(context: Context) {
                         return@execute
                     }
                     shutdownRemainingSec = rem
-                    shutdownMessage = "Фаза 2: Холостой ход и охлаждение Rato ($rem сек)..."
+                    shutdownMessage = "Фаза 2: Холостой ход без нагрузки ($rem сек)..."
                     notifySnapshot()
                     Thread.sleep(1000L)
                 }
@@ -643,7 +647,10 @@ class IskraEngine private constructor(context: Context) {
     fun killRatoImmediately() {
         shutdownCancelled = true
         executor.execute {
-            oukitel.setAcChargingLimit(0)
+            // Сразу отключаем линию Rato (socket_2), не трогая процент зарядки станции, и зажимаем Shelly
+            executor.execute {
+                smartLife.sendSwitchCommand("socket_2", "switch_1", false)
+            }
             executeShellyKillPulse()
         }
     }
@@ -652,9 +659,9 @@ class IskraEngine private constructor(context: Context) {
         shutdownCancelled = true
         shutdownPhase = "IDLE"
         shutdownRemainingSec = 0
-        shutdownMessage = "Остановка отменена — возвращаем зарядку 100%"
+        shutdownMessage = "Остановка отменена — включаем обратно розетку Rato (socket_2)"
         executor.execute {
-            oukitel.setAcChargingLimit(100)
+            smartLife.sendSwitchCommand("socket_2", "switch_1", true)
             notifySnapshot()
         }
     }
@@ -662,24 +669,39 @@ class IskraEngine private constructor(context: Context) {
     private fun executeShellyKillPulse() {
         shutdownPhase = "KILLING"
         shutdownRemainingSec = 0
-        shutdownMessage = "Фаза 3: Замыкаем реле глушения Shelly (192.168.86.192)..."
+        shutdownMessage = "Фаза 3: Удерживаем глушение Shelly до полной остановки маховика..."
         notifySnapshot()
 
         var anyOk = false
-        for (attempt in 1..5) {
-            if (shelly.triggerKillRelay(true)) {
+        var consecutiveDead = 0
+        val startKillMs = System.currentTimeMillis()
+
+        // Безотрывная очередь удержания (каждые 300 мс на протяжении ~7.5 сек + toggle_after=10),
+        // чтобы реле Shelly ни на миллисекунду не размыкалось, пока маховик Rato крутится по инерции
+        for (pulse in 1..25) {
+            val ok = shelly.triggerKillRelay(on = true, toggleAfterSec = 10, timeoutMs = 900)
+            if (ok) {
                 anyOk = true
+                consecutiveDead = 0
+            } else {
+                consecutiveDead++
             }
-            Thread.sleep(1800L)
-            shelly.refresh()
-            if (!shelly.state.online) {
+            val elapsedMs = System.currentTimeMillis() - startKillMs
+            shutdownMessage = "Фаза 3: Удержание глушения Shelly (импульс #$pulse)..."
+            notifySnapshot()
+
+            // Если реле уже схватило (anyOk) и после 3.5+ сек удержания Shelly перестал отвечать 4 раза подряд —
+            // значит альтернатор генератора полностью остановился и обесточил Shelly
+            if (anyOk && elapsedMs >= 3500L && consecutiveDead >= 4) {
                 break
             }
+            try { Thread.sleep(300L) } catch (_: Exception) {}
         }
 
+        shelly.refresh()
         if (!anyOk && shelly.state.online) {
             shutdownPhase = "ERROR"
-            shutdownMessage = "Не удалось достучаться до Shelly (192.168.86.192)!"
+            shutdownMessage = "Не удалось достучаться до Shelly (${shelly.state.ip})!"
             notifySnapshot()
             return
         }
@@ -687,7 +709,7 @@ class IskraEngine private constructor(context: Context) {
         oukitel.refresh()
 
         shutdownPhase = "STOPPED"
-        shutdownMessage = "Генератор Rato успешно заглушен!"
+        shutdownMessage = "Генератор Rato полностью заглушен!"
         notifySnapshot()
 
         Thread.sleep(5000L)

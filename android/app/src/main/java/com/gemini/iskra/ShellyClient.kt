@@ -67,12 +67,17 @@ class ShellyClient(
         }
     }
 
-    fun triggerKillRelay(on: Boolean = true): Boolean {
-        val conn = (URL("http://$ip/rpc/Switch.Set?id=0&on=$on").openConnection() as HttpURLConnection)
+    fun triggerKillRelay(on: Boolean = true, toggleAfterSec: Int = 10, timeoutMs: Int = 1000): Boolean {
+        val url = if (on && toggleAfterSec > 0) {
+            "http://$ip/rpc/Switch.Set?id=0&on=true&toggle_after=$toggleAfterSec"
+        } else {
+            "http://$ip/rpc/Switch.Set?id=0&on=$on"
+        }
+        val conn = (URL(url).openConnection() as HttpURLConnection)
         return try {
             conn.requestMethod = "GET"
-            conn.connectTimeout = 2500
-            conn.readTimeout = 2500
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
             val ok = conn.responseCode == 200
             if (ok) state.relayOutput = on
             ok

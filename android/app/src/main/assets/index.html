@@ -890,8 +890,8 @@
           <span style="font-family:var(--mono); font-size:10px; color:var(--muted);">ПРОДУВКА ПЕРЕД СТОПОМ:</span>
           <div style="display:flex; gap:4px;">
             <button class="step-btn" id="cd15" style="padding:3px 8px;" onclick="setCooldownSec(15)">15с</button>
-            <button class="step-btn active" id="cd30" style="padding:3px 8px;" onclick="setCooldownSec(30)">30с</button>
-            <button class="step-btn" id="cd45" style="padding:3px 8px;" onclick="setCooldownSec(45)">45с</button>
+            <button class="step-btn active" id="cd20" style="padding:3px 8px;" onclick="setCooldownSec(20)">20с</button>
+            <button class="step-btn" id="cd30" style="padding:3px 8px;" onclick="setCooldownSec(30)">30с</button>
             <button class="step-btn" id="cd60" style="padding:3px 8px;" onclick="setCooldownSec(60)">60с</button>
           </div>
         </div>
@@ -900,13 +900,13 @@
           <button class="kill-btn" id="btnSmartStop" onclick="startSmartStop()">
             <div>
               <div>УМНЫЙ СТОП RATO (2 ФАЗЫ)</div>
-              <div class="kill-sub" id="killSubText">Сброс 0% -> Продувка 30с -> Shelly</div>
+              <div class="kill-sub" id="killSubText">Выкл розетку -> Холостой 20с -> Shelly</div>
             </div>
           </button>
           <button class="kill-btn" style="background:rgba(242,73,92,0.28); justify-content:center; text-align:center;" onclick="killNow()">
             <div>
               <div>СТОП СРАЗУ</div>
-              <div class="kill-sub">Прямой импульс</div>
+              <div class="kill-sub">Удержание до стопа</div>
             </div>
           </button>
         </div>
@@ -1497,7 +1497,7 @@
 
 <script>
   let S = null;
-  let cooldownSec = 30;
+  let cooldownSec = 20;
   let selectedPeriod = 'DAY'; // DAY, 24H, 7D, 30D, CUSTOM
   const TAB_ORDER = ['ctrl', 'grafana', 'dtek', 'bunker', 'gen'];
   let activeTabId = 'ctrl';
@@ -1530,11 +1530,13 @@
     'ЗАГЛУШИТЬ СРАЗУ': 'KILL IMMEDIATELY',
     'ПРОДУВКА ПЕРЕД СТОПОМ:': 'IDLE COOLDOWN TIMER:',
     '15с': '15s',
+    '20с': '20s',
     '30с': '30s',
     '45с': '45s',
     '60с': '60s',
     'УМНЫЙ СТОП RATO (2 ФАЗЫ)': 'SMART 2-STAGE STOP',
     'СТОП СРАЗУ': 'KILL NOW',
+    'Удержание до стопа': 'Hold Until Dead Stop',
     'Прямой импульс': 'Instant Relay Pulse',
     'ВЫБОР ПЕРИОДА АНАЛИТИКИ': 'ANALYTICS TIME RANGE',
     'ДЕНЬ': 'TODAY',
@@ -1802,12 +1804,13 @@
 
   function setCooldownSec(sec) {
     cooldownSec = sec;
-    [15, 30, 45, 60].forEach(v => {
-      document.getElementById('cd' + v).classList.toggle('active', v === sec);
+    [15, 20, 30, 60].forEach(v => {
+      const el = document.getElementById('cd' + v);
+      if (el) el.classList.toggle('active', v === sec);
     });
     document.getElementById('killSubText').textContent = isEn()
-      ? `Drop 0% -> Cooldown ${sec}s -> Shelly Kill`
-      : `Сброс 0% -> Продувка ${sec}с -> Shelly`;
+      ? `Socket OFF -> Idle ${sec}s -> Shelly Hold`
+      : `Выкл розетку -> Холостой ${sec}с -> Shelly`;
   }
 
   let stepsInitialized = false;
