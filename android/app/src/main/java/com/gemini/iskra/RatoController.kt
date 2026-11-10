@@ -26,6 +26,29 @@ class RatoController(
     var totalMotoSeconds: Long = prefs.getLong("total_moto_seconds", 2820L)
     var cooldownConfigSec: Int = prefs.getInt("cooldown_sec", 20)
 
+    init {
+        if (prefs.getLong("tank_full_mark_ms", 0L) == 0L) {
+            val now = System.currentTimeMillis()
+            val dateStr = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(now))
+            prefs.edit()
+                .putLong("tank_full_mark_ms", now)
+                .putLong("tank_full_mark_moto_sec", totalMotoSeconds)
+                .putString("tank_full_mark_date", dateStr)
+                .apply()
+        }
+    }
+
+    fun markTankFull() {
+        val now = System.currentTimeMillis()
+        val dateStr = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(now))
+        prefs.edit()
+            .putLong("tank_full_mark_ms", now)
+            .putLong("tank_full_mark_moto_sec", totalMotoSeconds)
+            .putString("tank_full_mark_date", dateStr)
+            .apply()
+        onStateChanged()
+    }
+
     fun addMotoSeconds(dtSec: Long) {
         if (dtSec > 0) {
             totalMotoSeconds += dtSec
@@ -52,6 +75,13 @@ class RatoController(
                     totalMotoSeconds = (mh * 3600.0).toLong()
                     ed.putLong("total_moto_seconds", totalMotoSeconds)
                 }
+            }
+            if (o.has("markTankFull") && o.optBoolean("markTankFull", false)) {
+                val now = System.currentTimeMillis()
+                val dateStr = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(now))
+                ed.putLong("tank_full_mark_ms", now)
+                ed.putLong("tank_full_mark_moto_sec", totalMotoSeconds)
+                ed.putString("tank_full_mark_date", dateStr)
             }
             ed.apply()
             onStateChanged()
@@ -222,6 +252,11 @@ class RatoController(
         val sparkRemainingHours = max(0.0, sparkIntervalH.toDouble() - sparkUsedHours)
         val estimatedFuelLiters = motoHours * fuelHalfLh
 
+        val tankFullMarkMs = prefs.getLong("tank_full_mark_ms", System.currentTimeMillis())
+        val tankFullMarkMotoSec = prefs.getLong("tank_full_mark_moto_sec", totalMotoSeconds)
+        val tankFullUsedSec = max(0L, totalMotoSeconds - tankFullMarkMotoSec)
+        val tankFullDate = prefs.getString("tank_full_mark_date", "10.11") ?: "10.11"
+
         return JSONObject().apply {
             put("running", ratoRunning)
             put("shellyOnline", sh.online)
@@ -231,6 +266,9 @@ class RatoController(
             put("rssi", sh.rssi)
             put("relayOutput", sh.relayOutput)
             put("motoHours", (motoHours * 10.0).roundToInt() / 10.0)
+            put("tankFullMarkMs", tankFullMarkMs)
+            put("tankFullUsedSec", tankFullUsedSec)
+            put("tankFullDate", tankFullDate)
             put("oilUsedHours", (oilUsedHours * 10.0).roundToInt() / 10.0)
             put("oilRemainingHours", (oilRemainingHours * 10.0).roundToInt() / 10.0)
             put("oilResetDate", prefs.getString("gen_oil_reset_date", "С начала учёта") ?: "С начала учёта")

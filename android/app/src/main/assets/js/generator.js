@@ -72,20 +72,54 @@ function applySparkCustomHours() {
   if (adj) adj.classList.remove('active');
 }
 
-function calibrateFuelByRefill() {
-  const litEl = document.getElementById('inpCalibLiters');
-  const hrsEl = document.getElementById('inpCalibHours');
-  const actualL = parseFloat(litEl ? litEl.value : '0');
-  const actualH = parseFloat(hrsEl ? hrsEl.value : '0');
-  if (!actualL || actualL <= 0 || !actualH || actualH <= 0) return;
+function markTankFullNow() {
+  if (window.IskraNative && window.IskraNative.saveGenConfig) {
+    window.IskraNative.saveGenConfig(JSON.stringify({ markTankFull: true }));
+  }
+  const badge = document.getElementById('tankFullBadge');
+  if (badge) {
+    badge.textContent = isEn() ? '✓ RESET TO 0m' : '✓ СБРОШЕНО В 0м';
+    badge.style.color = 'var(--green)';
+  }
+}
 
-  const cfg = getGenConfig(window.S);
-  const measuredLh = actualL / actualH;
+function calibrateByHalfTank() {
+  const d = window.S;
+  if (!d) return;
+  const cfg = getGenConfig(d);
+  const rato = d.rato || {};
+  const nowMs = d.timestamp || Date.now();
+  const tankMarkMs = Number(rato.tankFullMarkMs || nowMs);
+  const rawIntervals = (d.history && d.history.intervals) ? d.history.intervals : [];
 
-  // Compute current estimated L/h at typical generator load (~0.88 kW)
-  const estLh = Math.max(0.3, cfg.idleLh + 0.88 * cfg.slopePerKw);
-  const ratio = Math.max(0.4, Math.min(2.2, measuredLh / estLh));
+  let sinceTankMs = 0;
+  let estBurnedL = 0;
+  rawIntervals.forEach(iv => {
+    if (iv.mode === 'GENERATOR') {
+      const s = Math.max(tankMarkMs, iv.startMs || 0);
+      const e = Math.min(nowMs, iv.endMs || nowMs);
+      if (e > s) {
+        const dur = e - s;
+        const w = (iv.avgInW && iv.avgInW > 40) ? iv.avgInW : ((iv.avgOutW && iv.avgOutW > 40) ? iv.avgOutW : 880);
+        sinceTankMs += dur;
+        estBurnedL += calcIntervalFuelLiters(dur, w, cfg);
+      }
+    }
+  });
 
+  const statusEl = document.getElementById('calibStatusHint');
+  if (sinceTankMs < 1800_000 || estBurnedL <= 0.2) {
+    if (statusEl) {
+      statusEl.textContent = isEn()
+        ? 'Need at least 30+ min of Rato run since full tank mark to calibrate!'
+        : 'Для калибровки нужно хотя бы 30+ мин наработки с момента полного бака!';
+      statusEl.style.color = 'var(--amber)';
+    }
+    return;
+  }
+
+  const halfTankL = cfg.tankL / 2.0;
+  const ratio = Math.max(0.4, Math.min(2.2, halfTankL / estBurnedL));
   const newHalf = Math.round(cfg.fuelHalfLh * ratio * 100) / 100;
   const newFull = Math.round(cfg.fuelFullLh * ratio * 100) / 100;
 
@@ -96,11 +130,10 @@ function calibrateFuelByRefill() {
 
   saveGenSettings();
 
-  const statusEl = document.getElementById('calibStatusHint');
   if (statusEl) {
     statusEl.textContent = isEn()
-      ? `✓ Calibrated: ${measuredLh.toFixed(2)} L/h (½ load=${newHalf} L/h, 100%=${newFull} L/h)`
-      : `✓ Откалибровано: ${measuredLh.toFixed(2)} л/ч (½ нагр.=${newHalf} л/ч, 100%=${newFull} л/ч)`;
+      ? `✓ Calibrated by ½ tank (${halfTankL.toFixed(1)}L over ${fmtMinExact(sinceTankMs)}): ½=${newHalf} L/h, Max=${newFull} L/h`
+      : `✓ Откалибровано по ½ бака (${halfTankL.toFixed(1)}л за ${fmtMinExact(sinceTankMs)}): ½=${newHalf} л/ч, Макс=${newFull} л/ч`;
     statusEl.style.color = 'var(--green)';
   }
 }
@@ -155,32 +188,35 @@ function renderGeneratorTab(d) {
     document.getElementById('cfgSparkInt').value = cfg.sparkIntervalH;
   }
 
-  // Prefill Calibration Hours with last 24h generator run duration once
-  if (!calibHoursInitialized) {
-    const rawIntervals = (d.history && d.history.intervals) ? d.history.intervals : [];
-    const nowMs = d.timestamp || Date.now();
-    const s24 = nowMs - 24 * 3600_000;
-    let gen24Ms = 0;
-    rawIntervals.forEach(iv => {
-      if (iv.mode === 'GENERATOR') {
-        const s = Math.max(s24, iv.startMs || 0);
-        const e = Math.min(nowMs, iv.endMs || nowMs);
-        if (e > s) gen24Ms += (e - s);
-      }
-    });
-    const hrsInp = document.getElementById('inpCalibHours');
-    if (hrsInp && gen24Ms > 0) {
-      calibHoursInitialized = true;
-      const h24 = Math.round((gen24Ms / 3600_000) * 100) / 100;
-      hrsInp.value = h24;
-      const estL24 = calcIntervalFuelLiters(gen24Ms, 880, cfg);
-      const hintEl = document.getElementById('calibStatusHint');
-      if (hintEl) {
-        hintEl.textContent = isEn()
-          ? `Last 24h on Rato: ${h24} h (est. ~${estL24.toFixed(2)} L)`
-          : `За последние 24ч Rato отработал ${h24} ч (расчётно ~${estL24.toFixed(2)} л)`;
+  // Update live Full-Tank Checkpoint status in Tab 5
+  const nowMs = d.timestamp || Date.now();
+  const tankMarkMs = Number(rato.tankFullMarkMs || nowMs);
+  const rawIntervals = (d.history && d.history.intervals) ? d.history.intervals : [];
+  let sinceTankMs = 0;
+  let sinceTankL = 0;
+  rawIntervals.forEach(iv => {
+    if (iv.mode === 'GENERATOR') {
+      const s = Math.max(tankMarkMs, iv.startMs || 0);
+      const e = Math.min(nowMs, iv.endMs || nowMs);
+      if (e > s) {
+        const dur = e - s;
+        const w = (iv.avgInW && iv.avgInW > 40) ? iv.avgInW : ((iv.avgOutW && iv.avgOutW > 40) ? iv.avgOutW : 880);
+        sinceTankMs += dur;
+        sinceTankL += calcIntervalFuelLiters(dur, w, cfg);
       }
     }
+  });
+  const hintEl = document.getElementById('calibStatusHint');
+  const badgeEl = document.getElementById('tankFullBadge');
+  const tDate = rato.tankFullDate || fmtDateDM(tankMarkMs);
+  if (badgeEl) {
+    badgeEl.textContent = isEn() ? `MARK: ${tDate}` : `МЕТКА: ${tDate}`;
+  }
+  if (hintEl && !hintEl.textContent.startsWith('✓')) {
+    const remL = Math.max(0, cfg.tankL - sinceTankL);
+    hintEl.textContent = isEn()
+      ? `Since full tank (${tDate}): ran ${fmtMinExact(sinceTankMs)} • burned ~${sinceTankL.toFixed(2)} L (~${remL.toFixed(1)} L left)`
+      : `С полного бака (${tDate}): намотано ${fmtMinExact(sinceTankMs)} • сожжено ~${sinceTankL.toFixed(2)} л (в баке ~${remL.toFixed(1)} л)`;
   }
 
   const totalMotoH = Number(rato.motoHours || 0);

@@ -397,13 +397,13 @@
             <div class="stat-sub" id="gf7dSub">За последние 7 суток</div>
           </div>
 
-          <div class="stat-cell">
+          <div class="stat-cell" style="border-left: 3px solid var(--green);">
             <div class="stat-label">
-              <span>ЗА 30 ДНЕЙ / ВСЕГО</span>
-              <span id="gf30dTime" style="color:var(--muted);">0ч</span>
+              <span>С ПОЛНОГО БАКА</span>
+              <span id="gf30dTime" style="color:var(--green);">0м</span>
             </div>
-            <div class="stat-val" id="gf30dLiters" style="font-size:18px;">0.0 л</div>
-            <div class="stat-sub" id="gf30dSub">Общие моточасы: 0.0 ч</div>
+            <div class="stat-val" id="gf30dLiters" style="font-size:18px; color:var(--green);">0.00 л</div>
+            <div class="stat-sub" id="gf30dSub">Полный бак (14.5 л) отмечен</div>
           </div>
         </div>
 
@@ -864,27 +864,27 @@
           <span>СОХРАНИТЬ ПАРАМЕТРЫ ГЕНЕРАТОРА</span>
         </button>
 
-        <!-- Calibration by Jerrycan Refill -->
-        <div class="maint-card" style="margin-bottom:0; border-color:rgba(255,152,48,0.35);">
-          <div style="font-family:var(--mono); font-size:10px; font-weight:700; color:var(--amber); margin-bottom:2px;">
-            КАЛИБРОВКА РАСХОДА ПО ДОЛИВУ ИЗ КАНИСТРЫ
+        <!-- Full Tank Checkpoint & Half-Tank Calibration -->
+        <div class="maint-card" style="margin-bottom:0; border-color:rgba(115,191,105,0.4);">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono); margin-bottom:3px;">
+            <span style="font-size:10px; font-weight:700; color:var(--green);">
+              ⛽ ТОЧКА ОТСЧЁТА: ПОЛНЫЙ БАК (14.5 Л)
+            </span>
+            <span id="tankFullBadge" style="font-size:9px; color:var(--cyan);">АКТИВЕН</span>
           </div>
-          <div id="calibStatusHint" style="font-family:var(--mono); font-size:9px; color:var(--muted); margin-bottom:6px;">
-            Долей бак до полного и укажи, сколько литров ушло за известные моточасы
+          <div id="calibStatusHint" style="font-family:var(--mono); font-size:9px; color:var(--muted); margin-bottom:7px;">
+            Флаг полного бака установлен. Считаем точные моточасы и нагрузку до половины бака!
           </div>
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:6px;">
-            <div class="cfg-field">
-              <label class="cfg-label">ФАКТИЧЕСКИ УШЛО (Л)</label>
-              <input type="number" step="0.1" min="0.1" class="cfg-input" id="inpCalibLiters" placeholder="напр. 3.5" style="text-align:center;">
-            </div>
-            <div class="cfg-field">
-              <label class="cfg-label">ЗА СКОЛЬКО ЧАСОВ (Ч)</label>
-              <input type="number" step="0.1" min="0.1" class="cfg-input" id="inpCalibHours" value="1.8" style="text-align:center;">
-            </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+            <button class="ctrl-btn active-green" style="text-align:center; align-items:center; padding:7px;" onclick="markTankFullNow()">
+              <span>Я ЗАЛИЛА ПОЛНЫЙ БАК</span>
+              <span class="sub">Сбросить отсчёт бака в 0м</span>
+            </button>
+            <button class="ctrl-btn active-amber" style="text-align:center; align-items:center; padding:7px;" onclick="calibrateByHalfTank()">
+              <span>ПО ДАТЧИКУ ½ БАКА</span>
+              <span class="sub">Калибровка (~7.25 л ушло)</span>
+            </button>
           </div>
-          <button class="ctrl-btn active-blue" style="width:100%; text-align:center; align-items:center; padding:7px;" onclick="calibrateFuelByRefill()">
-            <span>ОТКАЛИБРОВАТЬ РАСХОД ПО ФАКТУ</span>
-          </button>
         </div>
       </div>
 

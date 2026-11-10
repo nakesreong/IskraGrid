@@ -427,19 +427,34 @@ function renderFuelAnalyticsPanel(d, cfg, rawIntervals, pts, win, spanStart, spa
   const d7SubEl = document.getElementById('gf7dSub');
   if (d7SubEl) d7SubEl.textContent = isEn() ? 'Past 7 days' : 'За последние 7 суток';
 
-  // Card 4: 30 Days / Total
+  // Card 4: Since Full Tank Mark (14.5 L)
   const rato = d.rato || {};
-  const totalMotoH = Number(rato.motoHours || 0);
-  const totalEstL = Math.max(d30L, totalMotoH * (cfg.idleLh + 0.88 * cfg.slopePerKw));
+  const tankMarkMs = Number(rato.tankFullMarkMs || nowMs);
+  let sinceTankMs = 0;
+  let sinceTankL = 0;
+  rawIntervals.forEach(iv => {
+    if (iv.mode === 'GENERATOR') {
+      const s = Math.max(tankMarkMs, iv.startMs || 0);
+      const e = Math.min(nowMs, iv.endMs || nowMs);
+      if (e > s) {
+        const dur = e - s;
+        const w = (iv.avgInW && iv.avgInW > 40) ? iv.avgInW : ((iv.avgOutW && iv.avgOutW > 40) ? iv.avgOutW : 880);
+        sinceTankMs += dur;
+        sinceTankL += calcIntervalFuelLiters(dur, w, cfg);
+      }
+    }
+  });
+  const remTankL = Math.max(0, cfg.tankL - sinceTankL);
   const d30TimeEl = document.getElementById('gf30dTime');
-  if (d30TimeEl) d30TimeEl.textContent = `${totalMotoH.toFixed(1)} ${hUnit}`;
+  if (d30TimeEl) d30TimeEl.textContent = fmtMinExact(sinceTankMs);
   const d30LitEl = document.getElementById('gf30dLiters');
-  if (d30LitEl) d30LitEl.textContent = `${totalEstL.toFixed(1)} ${lUnit}`;
+  if (d30LitEl) d30LitEl.textContent = `${sinceTankL.toFixed(2)} ${lUnit}`;
   const d30SubEl = document.getElementById('gf30dSub');
   if (d30SubEl) {
+    const tDate = rato.tankFullDate || fmtDateDM(tankMarkMs);
     d30SubEl.textContent = isEn()
-      ? `Total engine hours: ${totalMotoH.toFixed(1)} h`
-      : `Общий накат: ${totalMotoH.toFixed(1)} моточасов`;
+      ? `Full (${tDate}) • ~${remTankL.toFixed(1)}/${cfg.tankL} L left`
+      : `С ${tDate} • в баке ~${remTankL.toFixed(1)} из ${cfg.tankL} л`;
   }
 
   // Draw Fuel Chart (#cvFuel) for the selected period [spanStart, spanEnd]
