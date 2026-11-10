@@ -25,7 +25,9 @@ class IskraEngine private constructor(context: Context) {
         password = secrets.oukitelPassword,
         productKey = secrets.oukitelProductKey,
         deviceKey = secrets.oukitelDeviceKey,
-        authKeyB64 = secrets.oukitelAuthKeyB64
+        authKeyB64 = secrets.oukitelAuthKeyB64,
+        initialChargeLimit = prefs.getInt("oukitel_target_limit", 45),
+        onLimitChanged = { prefs.edit().putInt("oukitel_target_limit", it).apply() }
     )
     val shelly = ShellyClient(
         ip = prefs.getString("shelly_ip", secrets.shellyIp) ?: secrets.shellyIp

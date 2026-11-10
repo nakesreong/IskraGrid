@@ -47,7 +47,9 @@ class OukitelClient(
     private val password: String = "CHANGE_ME",
     private val productKey: String = "p11uve",
     private val deviceKey: String = "000000000000",
-    private var authKeyB64: String = "AAAAAAAAAAAAAAAAAAAAAA=="
+    private var authKeyB64: String = "AAAAAAAAAAAAAAAAAAAAAA==",
+    initialChargeLimit: Int = 45,
+    private val onLimitChanged: ((Int) -> Unit)? = null
 ) {
     private val baseUrl = "https://iot-api.acceleronix.io"
     private val userDomain = "E.SP.4294967410"
@@ -58,10 +60,10 @@ class OukitelClient(
     private var accessToken: String? = null
     private var tokenExpirySec: Long = 0L
     private var lastWakeMs: Long = 0L
-    @Volatile private var targetChargeLimit: Int = 50
+    @Volatile private var targetChargeLimit: Int = initialChargeLimit
     private val lanLock = Any()
 
-    val state = OukitelTelemetry(hostIp = hostIp, acChargingLimit = 50)
+    val state = OukitelTelemetry(hostIp = hostIp, acChargingLimit = initialChargeLimit)
 
     fun setHostIp(ip: String) {
         if (ip.isNotBlank()) {
@@ -434,12 +436,7 @@ class OukitelClient(
         (map[11] as? Int)?.let { state.acInputW = it }
         (map[12] as? Int)?.let { state.dcInputW = it }
         (map[14] as? Int)?.let { state.tempC = it }
-        (map[20] as? Int)?.let {
-            if (it > 0) {
-                targetChargeLimit = it
-                state.acChargingLimit = it
-            }
-        }
+        state.acChargingLimit = targetChargeLimit
         (map[43] as? Boolean)?.let { state.acSwitch = it }
         (map[46] as? Boolean)?.let { state.dcSwitch = it }
     }
@@ -594,11 +591,8 @@ class OukitelClient(
                     "remain_charging_time" -> state.remainChargeMinutes = raw.toIntOrNull() ?: state.remainChargeMinutes
                     "temp" -> state.tempC = raw.toIntOrNull() ?: state.tempC
                     "ac_charging_limit" -> {
-                        val v = raw.toIntOrNull() ?: -1
-                        if (v >= 0) {
-                            targetChargeLimit = v
-                            state.acChargingLimit = v
-                        }
+                        // Cloud caches stale ac_charging_limit values when LAN TCP 6607 sets Tag 20 directly.
+                        // Keep the authoritative user-selected targetChargeLimit instead of overwriting it.
                     }
                     "led_status" -> state.ledStatus = raw.toIntOrNull() ?: state.ledStatus
                     "ac_switch" -> state.acSwitch = raw.equals("true", ignoreCase = true) || raw == "1"
@@ -677,6 +671,7 @@ class OukitelClient(
         val clamped = if (limit <= 0) 0 else limit.coerceIn(1, 100)
         targetChargeLimit = clamped
         state.acChargingLimit = clamped
+        onLimitChanged?.invoke(clamped)
         val lanOk = if (clamped >= 90) {
             val out = ByteArrayOutputStream()
             out.write(ttlvEncodeInt(20, 1))
