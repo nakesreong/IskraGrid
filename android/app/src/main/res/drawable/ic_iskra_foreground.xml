@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ================================================================== -->
+    <!-- LAYER 1: DUOTONE BACK ELEMENT (NEON MAGENTA / VIOLET PRISM RING)   -->
+    <!-- ================================================================== -->
+
+    <!-- Soft Outer Neon Bloom for Back Prism -->
+    <path
+        android:pathData="M54,28 L76,45 L76,63 L54,80 L32,63 L32,45 Z"
+        android:strokeColor="#38FF2A85"
+        android:strokeWidth="8.5"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
+
+    <!-- Translucent Glass Fill + Vivid Neon Pink/Purple Stroke -->
+    <path
+        android:pathData="M54,28 L76,45 L76,63 L54,80 L32,63 L32,45 Z"
+        android:fillAlpha="0.34"
+        android:strokeWidth="3.6"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="32"
+                android:startY="28"
+                android:endX="76"
+                android:endY="80"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF2A85" />
+                <item android:offset="1.0" android:color="#7C4DFF" />
+            </gradient>
+        </aapt:attr>
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="32"
+                android:startY="28"
+                android:endX="76"
+                android:endY="80"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF409A" />
+                <item android:offset="0.5" android:color="#C51162" />
+                <item android:offset="1.0" android:color="#7C4DFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- ================================================================== -->
+    <!-- LAYER 2: DUOTONE FRONT ELEMENT (NEON CYAN / BLUE / EMERALD SPARK)  -->
+    <!-- ================================================================== -->
+
+    <!-- Soft Outer Neon Bloom for Lightning Bolt -->
+    <path
+        android:pathData="M59,24 L35,55.5 L51.5,55.5 L46,84 L73,50.5 L56,50.5 Z"
+        android:strokeColor="#4200F0FF"
+        android:strokeWidth="8.5"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
+
+    <!-- Translucent Cyan/Blue Glass Fill + Bright Neon Tube Outline -->
+    <path
+        android:pathData="M59,24 L35,55.5 L51.5,55.5 L46,84 L73,50.5 L56,50.5 Z"
+        android:fillAlpha="0.45"
+        android:strokeWidth="3.8"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="35"
+                android:startY="24"
+                android:endX="73"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#00F5FF" />
+                <item android:offset="0.55" android:color="#2979FF" />
+                <item android:offset="1.0" android:color="#00E676" />
+            </gradient>
+        </aapt:attr>
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="35"
+                android:startY="24"
+                android:endX="73"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#80FFFF" />
+                <item android:offset="0.45" android:color="#00E5FF" />
+                <item android:offset="0.8" android:color="#2979FF" />
+                <item android:offset="1.0" android:color="#00E676" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Duotone Intersection Highlight Line -->
+    <path
+        android:pathData="M56,35 L43,52.5 L52.5,52.5 L49.5,71 L64.5,53 L55,53 Z"
+        android:fillColor="#3000FFFF"
+        android:strokeColor="#B084FFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
+
+</vector>

@@ -1,0 +1,3098 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ISKRA // GRAFANA OPS</title>
+<style>
+  :root {
+    --bg: #000000;
+    --panel: #000000;
+    --panel-alt: #050608;
+    --border: #1A1D24;
+    --border-bright: #282D38;
+    --text: #EAECEF;
+    --muted: #8A8F98;
+    --dim: #52565E;
+    --green: #73BF69;
+    --amber: #FF9830;
+    --blue: #5794F2;
+    --cyan: #33B5E5;
+    --red: #F2495C;
+    --zero: #6E737B;
+    --mono: "JetBrains Mono", "Roboto Mono", "SFMono-Regular", Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  body {
+    margin: 0;
+    padding: 0 0 108px 0;
+    background: #000000;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-x: hidden;
+  }
+
+  /* Top Grafana Navbar - shifted down below status bar & camera cutout, Pure OLED Black */
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: #000000;
+    border-bottom: 1px solid var(--border);
+    padding: 56px 12px 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-led {
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    display: inline-block;
+  }
+  .brand-title {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: var(--text);
+  }
+  .brand-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 6px;
+    background: #050608;
+    border: 1px solid var(--border-bright);
+    color: var(--muted);
+  }
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .metric-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 6px;
+    background: #050608;
+    border: 1px solid var(--border);
+    color: var(--green);
+  }
+  .btn-icon {
+    height: 26px;
+    padding: 0 8px;
+    background: #06080B;
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-icon:active {
+    background: #161A22;
+  }
+
+  /* Layout Grid */
+  .workspace {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tab-view {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tab-view.active {
+    display: flex;
+    animation: tabFadeIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes tabFadeIn {
+    from { opacity: 0.35; transform: translateX(var(--swipe-dir, 0px)); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Grafana Panel */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 10px;
+  }
+  .panel-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1A1C23;
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .panel-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+  }
+
+  /* Top 4 Stat Panels Row */
+  .stat-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .stat-cell {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 10px;
+  }
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+  }
+  .stat-val {
+    font-family: var(--mono);
+    font-size: 21px;
+    font-weight: 700;
+    margin: 4px 0 2px 0;
+    letter-spacing: -0.02em;
+  }
+  .stat-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .bar-track {
+    width: 100%;
+    height: 4px;
+    background: #12151B;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--blue);
+    transition: width 0.3s ease;
+  }
+
+  /* Power Routing & Sockets Table */
+  .route-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .route-box {
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    padding: 8px;
+  }
+  .route-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .route-metrics {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .tag-online { color: var(--green); }
+  .tag-offline { color: var(--red); }
+
+  /* 3-Button Charging Mode Selector */
+  .sec-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin: 6px 0 5px 0;
+    display: flex;
+    justify-content: space-between;
+  }
+  .btn-group-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+  }
+  .btn-group-5 {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    margin-top: 5px;
+  }
+  .ctrl-btn {
+    background: #040507;
+    border: 1px solid var(--border-bright);
+    border-radius: 2px;
+    color: var(--text);
+    padding: 8px 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ctrl-btn:active {
+    background: #151820;
+  }
+  .ctrl-btn .sub {
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .ctrl-btn.active-blue {
+    border-color: var(--blue);
+    background: rgba(87, 148, 242, 0.13);
+    color: #fff;
+  }
+  .ctrl-btn.active-amber {
+    border-color: var(--amber);
+    background: rgba(255, 152, 48, 0.14);
+    color: #fff;
+  }
+  .ctrl-btn.active-green {
+    border-color: var(--green);
+    background: rgba(115, 191, 105, 0.14);
+    color: #fff;
+  }
+  .ctrl-btn.active-red {
+    border-color: var(--red);
+    background: rgba(242, 73, 92, 0.15);
+    color: #fff;
+  }
+  .step-btn {
+    background: #040507;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .step-btn.active {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: rgba(51, 181, 229, 0.12);
+  }
+
+  /* Kill Switch Industrial Box */
+  .rato-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .kv-box {
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    padding: 6px;
+  }
+  .kv-k {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .kv-v {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+
+  .kill-btn {
+    width: 100%;
+    background: rgba(242, 73, 92, 0.14);
+    border: 1px solid var(--red);
+    border-radius: 2px;
+    color: #FFDADE;
+    padding: 9px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .kill-btn:active {
+    background: rgba(242, 73, 92, 0.28);
+  }
+  .kill-sub {
+    font-size: 9px;
+    font-weight: 400;
+    color: #F28B96;
+    margin-top: 2px;
+  }
+
+  .cooldown-box {
+    display: none;
+    background: #191215;
+    border: 1px solid var(--red);
+    padding: 8px;
+    margin-bottom: 8px;
+    font-family: var(--mono);
+  }
+  .cooldown-box.active {
+    display: block;
+  }
+
+  /* Period Selector & Date Inputs */
+  .period-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+  .date-picker-row {
+    display: none;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #1C1F26;
+  }
+  .date-picker-row.active {
+    display: grid;
+  }
+  .date-input {
+    width: 100%;
+    background: #16181F;
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 6px;
+  }
+
+  /* Interval Log Table */
+  .log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 210px;
+    overflow-y: auto;
+    margin-top: 6px;
+  }
+  .log-row {
+    background: var(--panel-alt);
+    border-left: 3px solid var(--muted);
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .log-row.mode-GRID { border-left-color: var(--green); }
+  .log-row.mode-GENERATOR { border-left-color: var(--amber); }
+  .log-row.mode-BATTERY { border-left-color: var(--red); }
+  .log-row.mode-BLACKOUT_ZERO { border-left-color: var(--zero); }
+
+  /* Daily Stacked Bars (for 7d / 30d / Period) */
+  .daily-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 6px;
+  }
+  .d-row {
+    display: grid;
+    grid-template-columns: 42px 1fr 110px;
+    gap: 6px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .d-track {
+    height: 12px;
+    background: #181B20;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* Grafana Canvas & Legend Table */
+  .chart-wrap {
+    width: 100%;
+    height: 140px;
+    position: relative;
+    background: #000000;
+    border: 1px solid #161920;
+  }
+  .timeline-canvas-wrap {
+    width: 100%;
+    height: 54px;
+    position: relative;
+    background: #000000;
+    border: 1px solid #161920;
+  }
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .gf-legend {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 5px;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .gf-legend th {
+    text-align: right;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 2px 4px;
+    border-bottom: 1px solid #161920;
+  }
+  .gf-legend th:first-child {
+    text-align: left;
+  }
+  .gf-legend td {
+    text-align: right;
+    padding: 3px 4px;
+    color: var(--text);
+  }
+  .gf-legend td:first-child {
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .lg-line {
+    width: 10px;
+    height: 3px;
+    display: inline-block;
+  }
+
+  /* Bottom Navigation Bar - Shelly-style Floating Minimalist Icon Dock */
+  .bottom-bar {
+    position: fixed;
+    bottom: 14px;
+    left: 10px;
+    right: 10px;
+    z-index: 60;
+    background: rgba(13, 18, 26, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 15px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    height: 58px;
+    padding: 0 6px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.88);
+  }
+  .tab-btn {
+    position: relative;
+    background: transparent;
+    border: none;
+    color: #8A94A6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.18s ease;
+  }
+  .tab-btn svg {
+    width: 25px;
+    height: 25px;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: transform 0.18s ease, filter 0.18s ease;
+  }
+  .tab-btn::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%) scaleX(0);
+    width: 38px;
+    height: 3.5px;
+    background: #2EA3F2;
+    border-radius: 0 0 3px 3px;
+    box-shadow: 0 0 10px rgba(46, 163, 242, 0.85);
+    transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .tab-btn.active {
+    color: #FFFFFF;
+  }
+  .tab-btn.active::before {
+    transform: translateX(-50%) scaleX(1);
+  }
+  .tab-btn.active svg {
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.45));
+    transform: translateY(1px);
+  }
+
+  /* DTEK Schedule View Styles */
+  .dtek-hero {
+    background: #040609;
+    border: 1px solid var(--border-bright);
+    padding: 10px;
+    margin-bottom: 6px;
+  }
+  .dtek-track-wrap {
+    position: relative;
+    width: 100%;
+    height: 24px;
+    background: #10131A;
+    border: 1px solid #1E232E;
+    display: flex;
+    overflow: hidden;
+    margin: 6px 0 4px 0;
+  }
+  .dtek-now-line {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: #00F0FF;
+    box-shadow: 0 0 8px #00F0FF;
+    z-index: 5;
+  }
+  .dtek-axis {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .dtek-slot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .dtek-slot {
+    background: #05070A;
+    border: 1px solid #161922;
+    border-left: 3px solid var(--muted);
+    padding: 6px 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .dtek-slot.slot-on {
+    border-left-color: var(--green);
+  }
+  .dtek-slot.slot-off {
+    border-left-color: var(--red);
+  }
+  .dtek-slot.slot-now {
+    background: rgba(51, 181, 229, 0.09);
+    border-color: var(--cyan);
+    border-left-width: 4px;
+  }
+
+  /* Generator & Maintenance Tab Styles */
+  .cfg-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .cfg-field {
+    background: #05070A;
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+  }
+  .cfg-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 3px;
+    display: block;
+  }
+  .cfg-input {
+    width: 100%;
+    background: #0E1218;
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 6px;
+    border-radius: 2px;
+  }
+  .maint-card {
+    background: #040609;
+    border: 1px solid var(--border-bright);
+    padding: 9px 10px;
+    margin-bottom: 6px;
+  }
+  .maint-card.due-warn {
+    border-color: var(--amber);
+    background: rgba(255, 152, 48, 0.06);
+  }
+  .adjust-row {
+    display: none;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #161A22;
+  }
+  .adjust-row.active {
+    display: grid;
+  }
+</style>
+</head>
+<body>
+
+  <!-- TOP GRAFANA NAVBAR -->
+  <div class="navbar">
+    <div class="nav-left">
+      <span class="status-led" id="navLed"></span>
+      <span class="brand-title">ISKRA</span>
+      <span class="brand-tag" id="navModeTag">ОТ СЕТИ ДТЕК</span>
+      <span class="brand-tag" id="navNetTag" style="color:var(--green);">LAN+NET</span>
+    </div>
+    <div class="nav-right">
+      <span class="metric-tag" id="navCoTag">CO: 0 ppm</span>
+      <button class="btn-icon" id="btnSync" onclick="forceRefresh()">SYNC</button>
+    </div>
+  </div>
+
+  <div class="workspace">
+
+    <!-- ========================================================= -->
+    <!-- TAB 1: ОПЕРАТИВНЫЙ ПУЛЬТ (CONTROL & ROUTING)              -->
+    <!-- ========================================================= -->
+    <div class="tab-view active" id="view-ctrl">
+
+      <!-- 4 Key Stat Cells -->
+      <div class="stat-grid-4">
+        <!-- Cell 1: Battery SOC -->
+        <div class="stat-cell">
+          <div class="stat-label">
+            <span>ЗАРЯД СТАНЦИИ</span>
+            <span id="stOukConn" style="color:var(--blue);">LAN+CLOUD</span>
+          </div>
+          <div class="stat-val" id="stBattPct" style="color:var(--cyan);">85%</div>
+          <div class="stat-sub" id="stBattEta">ЗАРЯД: ~8м • 42°C</div>
+          <div class="bar-track"><div class="bar-fill" id="stBattBar" style="width:85%;"></div></div>
+        </div>
+
+        <!-- Cell 2: Power Flow (In / Out) -->
+        <div class="stat-cell">
+          <div class="stat-label">
+            <span>ВХОД / ВЫХОД</span>
+            <span id="stNetW" style="color:var(--green);">+1198 W</span>
+          </div>
+          <div class="stat-val" style="display:flex; justify-content:space-between; align-items:baseline;">
+            <span id="stInW" style="color:var(--green);">1648W</span>
+            <span style="font-size:12px; color:var(--dim);">/</span>
+            <span id="stOutW" style="color:var(--amber);">450W</span>
+          </div>
+          <div class="stat-sub" id="stFlowSub">В БАТАРЕЮ: 1201W • ДОМ: 450W</div>
+          <div class="bar-track"><div class="bar-fill" id="stLoadBar" style="width:80%; background:var(--green);"></div></div>
+        </div>
+
+        <!-- Cell 3: DTEK Grid Status (socket_1) -->
+        <div class="stat-cell">
+          <div class="stat-label">
+            <span>СЕТЬ ДТЕК (SOCKET-1)</span>
+            <span id="stGridState" class="tag-online">ONLINE</span>
+          </div>
+          <div class="stat-val" id="stGridTitle" style="color:var(--green); font-size:18px;">СВЕТ ЕСТЬ</div>
+          <div class="stat-sub" id="stGridSub">socket_1: 208.6 V • 1684 W</div>
+        </div>
+
+        <!-- Cell 4: Active Cycle Timer -->
+        <div class="stat-cell">
+          <div class="stat-label">
+            <span>ТЕКУЩАЯ ФАЗА</span>
+            <span id="stCyclePct" style="color:var(--green);">85%</span>
+          </div>
+          <div class="stat-val" id="stCycleTime" style="color:var(--green); font-size:18px;">~8м до 100%</div>
+          <div class="stat-sub" id="stCycleSub">Фаза: Быстрая зарядка от сети ДТЕК</div>
+          <div class="bar-track"><div class="bar-fill" id="stCycleBar" style="width:85%; background:var(--green);"></div></div>
+        </div>
+      </div>
+
+      <!-- PANEL: OUKITEL CHARGING & SMART PLUG ROUTING -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">УПРАВЛЕНИЕ ЗАРЯДКОЙ И ЛИНИЯМИ ПИТАНИЯ</span>
+          <span class="panel-meta" id="oukIpMeta">192.168.86.191:6607</span>
+        </div>
+
+        <!-- Two Input Smart Sockets (socket_2 = Rato Generator, socket_1 = DTEK Grid) -->
+        <div class="route-grid">
+          <div class="route-box">
+            <div class="route-hdr">
+              <span>ГЕНЕРАТОР (SOCKET-2)</span>
+              <span id="s2Status" class="tag-offline">ОБЕСТОЧЕН</span>
+            </div>
+            <div class="route-metrics" id="s2Metrics" style="color:var(--muted);">0.0 V • 0 W</div>
+            <button class="ctrl-btn" id="btnSocket2" style="width:100%; padding:5px 8px;" onclick="togglePlug('socket_2', 's2')">
+              <span id="btnSocket2Txt">ЛИНИЯ RATO: ОБЕСТОЧЕНА</span>
+            </button>
+          </div>
+
+          <div class="route-box">
+            <div class="route-hdr">
+              <span>СЕТЬ ДТЕК (SOCKET-1)</span>
+              <span id="s1Status" class="tag-online">ON</span>
+            </div>
+            <div class="route-metrics" id="s1Metrics">208.6 V • 1684 W</div>
+            <button class="ctrl-btn active-green" id="btnSocket1" style="width:100%; padding:5px 8px;" onclick="togglePlug('socket_1', 's1')">
+              <span id="btnSocket1Txt">СЕТЬ ДТЕК: ВКЛ</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3-Button Charging Power Mode -->
+        <div class="sec-label">
+          <span>ПРОФИЛЬ МОЩНОСТИ ЗАРЯДКИ (OUKITEL P1000E+)</span>
+          <span id="curLimitLabel" style="color:var(--cyan);">ЛИМИТ: 100%</span>
+        </div>
+
+        <div class="btn-group-3">
+          <button class="ctrl-btn" id="btnModeIdle" onclick="setChargeProfile('IDLE')">
+            <span>1. СБРОС (0%)</span>
+            <span class="sub">Прогрев / Холостой (~85W в бат.)</span>
+          </button>
+          <button class="ctrl-btn" id="btnModeRato" onclick="setChargeProfile('RATO')">
+            <span>2. ОТ ГЕНЕРАТОРА</span>
+            <span class="sub">Щадящий 45% (~540W в бат. без рывков)</span>
+          </button>
+          <button class="ctrl-btn active-green" id="btnModeMax" onclick="setChargeProfile('MAX')">
+            <span>3. ОТ СЕТИ (FAST)</span>
+            <span class="sub">Максимум 100% (1200W в батарею)</span>
+          </button>
+        </div>
+
+        <!-- 5 Fine Step Buttons -->
+        <div class="btn-group-5">
+          <button class="step-btn" id="stLim0" onclick="setChargeLimit(0)">0% (85W)</button>
+          <button class="step-btn" id="stLim30" onclick="setChargeLimit(30)">30% (380W)</button>
+          <button class="step-btn" id="stLim45" onclick="setChargeLimit(45)">45% (RATO)</button>
+          <button class="step-btn" id="stLim60" onclick="setChargeLimit(60)">60% (750W)</button>
+          <button class="step-btn active" id="stLim100" onclick="setChargeLimit(100)">100% (FAST)</button>
+        </div>
+
+        <!-- Station Outputs -->
+        <div class="sec-label" style="margin-top:8px;">
+          <span>ВЫХОДЫ СТАНЦИИ OUKITEL</span>
+          <span id="oukOutMeta">AC 230V: 450W</span>
+        </div>
+        <div class="btn-group-3">
+          <button class="ctrl-btn active-blue" id="btnOukAc" onclick="toggleOukAc()">
+            <span>AC 230V</span>
+            <span class="sub" id="subOukAc">ВКЛЮЧЕНО</span>
+          </button>
+          <button class="ctrl-btn" id="btnOukDc" onclick="toggleOukDc()">
+            <span>DC 12V</span>
+            <span class="sub" id="subOukDc">ВЫКЛ</span>
+          </button>
+          <button class="ctrl-btn" id="btnOukLed" onclick="toggleOukLed()">
+            <span>LED ФОНАРЬ</span>
+            <span class="sub" id="subOukLed">ВЫКЛ</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- PANEL: GENERATOR RATO & SHELLY SMART SHUTDOWN -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ГЕНЕРАТОР RATO & РЕЛЕ ГЛУШЕНИЯ SHELLY</span>
+          <span class="panel-meta" id="shellyMeta">192.168.86.192 • OFFLINE</span>
+        </div>
+
+        <div class="rato-stats">
+          <div class="kv-box">
+            <div class="kv-k">СТАТУС</div>
+            <div class="kv-v" id="ratoState" style="color:var(--muted);">ЗАГЛУШЕН</div>
+          </div>
+          <div class="kv-box">
+            <div class="kv-k">ТЕКУЩИЙ ПУСК</div>
+            <div class="kv-v" id="ratoUptime">0с</div>
+          </div>
+          <div class="kv-box">
+            <div class="kv-k">ТЕМП. РЕЛЕ</div>
+            <div class="kv-v" id="ratoTemp">0.0°C</div>
+          </div>
+          <div class="kv-box">
+            <div class="kv-k">МОТОЧАСЫ</div>
+            <div class="kv-v" id="ratoMoto">0.8 ч</div>
+          </div>
+        </div>
+
+        <!-- Cooldown Progress Box -->
+        <div class="cooldown-box" id="cooldownBox">
+          <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--red);">
+            <span id="cdPhaseTitle">ФАЗА 2: ПРОДУВКА НА ХОЛОСТОМ ХОДУ</span>
+            <span id="cdCountdown">30s</span>
+          </div>
+          <div style="font-size:10px; color:var(--muted); margin-top:2px;" id="cdMsg">
+            Нагрузка снята. Охлаждение генератора перед импульсом Shelly...
+          </div>
+          <div class="bar-track" style="margin:6px 0;">
+            <div class="bar-fill" id="cdBar" style="width:100%; background:var(--red);"></div>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+            <button class="ctrl-btn" style="text-align:center;" onclick="cancelStop()">ОТМЕНИТЬ СТОП</button>
+            <button class="ctrl-btn active-red" style="text-align:center;" onclick="killNow()">ЗАГЛУШИТЬ СРАЗУ</button>
+          </div>
+        </div>
+
+        <!-- Cooldown Duration Selector + Stop Buttons -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="font-family:var(--mono); font-size:10px; color:var(--muted);">ПРОДУВКА ПЕРЕД СТОПОМ:</span>
+          <div style="display:flex; gap:4px;">
+            <button class="step-btn" id="cd15" style="padding:3px 8px;" onclick="setCooldownSec(15)">15с</button>
+            <button class="step-btn active" id="cd30" style="padding:3px 8px;" onclick="setCooldownSec(30)">30с</button>
+            <button class="step-btn" id="cd45" style="padding:3px 8px;" onclick="setCooldownSec(45)">45с</button>
+            <button class="step-btn" id="cd60" style="padding:3px 8px;" onclick="setCooldownSec(60)">60с</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:6px;">
+          <button class="kill-btn" id="btnSmartStop" onclick="startSmartStop()">
+            <div>
+              <div>УМНЫЙ СТОП RATO (2 ФАЗЫ)</div>
+              <div class="kill-sub" id="killSubText">Сброс 0% -> Продувка 30с -> Shelly</div>
+            </div>
+          </button>
+          <button class="kill-btn" style="background:rgba(242,73,92,0.28); justify-content:center; text-align:center;" onclick="killNow()">
+            <div>
+              <div>СТОП СРАЗУ</div>
+              <div class="kill-sub">Прямой импульс</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- TAB 2: ГРАФИКИ И ХРОНОЛОГИЯ (ДЕНЬ / СУТКИ / НЕДЕЛЯ / МЕСЯЦ) -->
+    <!-- ========================================================= -->
+    <div class="tab-view" id="view-grafana">
+
+      <!-- Period Selector Bar -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ВЫБОР ПЕРИОДА АНАЛИТИКИ</span>
+          <span class="panel-meta" id="periodRangeLabel">СЕГОДНЯ (00:00 — СЕЙЧАС)</span>
+        </div>
+        <div class="period-bar">
+          <button class="step-btn active" id="pBtnDay" onclick="setPeriod('DAY')">ДЕНЬ</button>
+          <button class="step-btn" id="pBtn24h" onclick="setPeriod('24H')">СУТКИ 24Ч</button>
+          <button class="step-btn" id="pBtn7d" onclick="setPeriod('7D')">НЕДЕЛЯ</button>
+          <button class="step-btn" id="pBtn30d" onclick="setPeriod('30D')">МЕСЯЦ</button>
+          <button class="step-btn" id="pBtnCustom" onclick="setPeriod('CUSTOM')">ПЕРИОД</button>
+        </div>
+        <div class="date-picker-row" id="customDateRow">
+          <div>
+            <div style="font-family:var(--mono); font-size:9px; color:var(--muted); margin-bottom:2px;">НАЧАЛО ПЕРИОДА:</div>
+            <input type="date" class="date-input" id="inpDateFrom" onchange="renderGrafanaPanels(S)">
+          </div>
+          <div>
+            <div style="font-family:var(--mono); font-size:9px; color:var(--muted); margin-bottom:2px;">КОНЕЦ ПЕРИОДА:</div>
+            <input type="date" class="date-input" id="inpDateTo" onchange="renderGrafanaPanels(S)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Exact Minute Totals for Selected Period -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">СВОДКА ВРЕМЕНИ ЗА ПЕРИОД (ТОЧНОСТЬ ДО МИНУТЫ)</span>
+          <button class="btn-icon" style="height:20px; font-size:9px;" onclick="resetHistory()">СБРОС ЛОГА</button>
+        </div>
+        <div class="stat-grid-4">
+          <div class="kv-box" style="border-left: 3px solid var(--green);">
+            <div class="kv-k">ОТ СЕТИ (ДТЕК)</div>
+            <div class="kv-v" id="sumGridTime" style="color:var(--green);">0м</div>
+            <div class="stat-sub" id="sumGridPct">0% времени</div>
+          </div>
+          <div class="kv-box" style="border-left: 3px solid var(--amber);">
+            <div class="kv-k">ОТ ГЕНЕРАТОРА (RATO)</div>
+            <div class="kv-v" id="sumGenTime" style="color:var(--amber);">0м</div>
+            <div class="stat-sub" id="sumGenPct">0% времени</div>
+          </div>
+          <div class="kv-box" style="border-left: 3px solid var(--red);">
+            <div class="kv-k">БЕЗ СЕТИ И ГЕНЕРАТОРА</div>
+            <div class="kv-v" id="sumBattTime" style="color:var(--red);">0м</div>
+            <div class="stat-sub" id="sumBattPct">На батарее станции</div>
+          </div>
+          <div class="kv-box" style="border-left: 3px solid var(--zero);">
+            <div class="kv-k">ВСЕ СЕЛО В 0 / ОФФЛАЙН</div>
+            <div class="kv-v" id="sumZeroTime" style="color:var(--muted);">0м</div>
+            <div class="stat-sub" id="sumZeroPct">Полное обесточивание</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANEL 1: ПОМИНУТНЫЙ ГРАФИК РЕЖИМОВ (ОТ СЕТИ / ОТ ГЕНЕРАТОРА / НА СТАНЦИИ) -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ГРАФИК ИСТОЧНИКОВ: СЕТЬ ДТЕК / ГЕНЕРАТОР RATO / СТАНЦИЯ</span>
+          <span class="panel-meta">ДО МИНУТЫ</span>
+        </div>
+        <div class="timeline-canvas-wrap">
+          <canvas id="cvStateTimeline"></canvas>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; font-family:var(--mono); font-size:9px; color:var(--muted);">
+          <span><b style="color:var(--green);">■</b> ОТ СЕТИ ДТЕК</span>
+          <span><b style="color:var(--amber);">■</b> ОТ ГЕНЕРАТОРА RATO</span>
+          <span><b style="color:var(--red);">■</b> НА СТАНЦИИ (БЕЗ СЕТИ/ГЕНЫ)</span>
+          <span><b style="color:var(--zero);">■</b> ВСЕ В 0% (ОФФЛАЙН)</span>
+        </div>
+
+        <!-- Daily Breakdown Bars (Shown when 7D / 30D / CUSTOM is selected) -->
+        <div class="daily-bars" id="dailyBreakdownBox"></div>
+
+        <!-- Exact Minute-by-Minute Interval Log -->
+        <div class="sec-label" style="margin-top:8px;">
+          <span>ХРОНОЛОГИЯ ПЕРЕКЛЮЧЕНИЙ (ТОЧНО ДО МИНУТЫ)</span>
+          <span id="intervalsCountLabel">0 записей</span>
+        </div>
+        <div class="log-list" id="intervalLogList"></div>
+      </div>
+
+      <!-- PANEL 2: ГРАФИК МОЩНОСТИ (ВХОД / ЗАРЯД / НАГРУЗКА ДОМА В ВАТТАХ) -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">МОЩНОСТЬ: ВХОД, ЗАРЯД БАТАРЕИ И НАГРУЗКА ДОМА (ВТ)</span>
+          <span class="panel-meta" id="gfSamplesCount">LIVE</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="cvPower"></canvas>
+        </div>
+        <table class="gf-legend">
+          <thead>
+            <tr><th>Линия</th><th>Сейчас</th><th>Мин</th><th>Макс</th><th>Среднее</th></tr>
+          </thead>
+          <tbody id="lgPower"></tbody>
+        </table>
+      </div>
+
+      <!-- PANEL 3: ГРАФИК ЗАРЯДА СТАНЦИИ (%) -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ЗАРЯД СТАНЦИИ OUKITEL P1000E+ (0% — 100%)</span>
+          <span class="panel-meta">ЕМКОСТЬ 1024 Вт·ч</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="cvSoc"></canvas>
+        </div>
+        <table class="gf-legend">
+          <thead>
+            <tr><th>Параметр</th><th>Сейчас</th><th>Мин</th><th>Макс</th><th>Среднее</th></tr>
+          </thead>
+          <tbody id="lgSoc"></tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- TAB 3: РАСПИСАНИЕ ОТКЛЮЧЕНИЙ ДТЕК                         -->
+    <!-- ========================================================= -->
+    <div class="tab-view" id="view-dtek">
+
+      <!-- HERO PANEL: CURRENT DTEK SCHEDULE STATUS & COUNTDOWN -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ДТЕК КЕМ // ГРУПА <span id="dtGroupBadge" style="color:var(--cyan);">33.1</span></span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="panel-meta" id="dtAddrBadge">Kyiv, UA</span>
+            <button class="btn-icon" style="height:20px; font-size:9px;" onclick="refreshDtekNow()">ОБНОВИТЬ</button>
+          </div>
+        </div>
+
+        <div class="dtek-hero">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono); font-size:10px;">
+            <span id="dtHeroTag" style="color:var(--red); font-weight:700;">🔴 ПО ГРАФИКУ: ОТКЛЮЧЕНИЕ</span>
+            <span id="dtHeroSlotSpan" style="color:var(--muted);">20:00 — 03:30 (7ч 30м)</span>
+          </div>
+          <div id="dtHeroCountdown" style="font-family:var(--mono); font-size:20px; font-weight:700; color:var(--text); margin:5px 0 3px 0;">
+            СВЕТ ДАДУТ В 03:30 (через 4ч 25м)
+          </div>
+          <div id="dtHeroNextInfo" style="font-family:var(--mono); font-size:10px; color:var(--green);">
+            Следующее окно со светом: 03:30 — 07:30 (4ч 00м)
+          </div>
+          <div class="bar-track" style="height:5px; margin-top:7px;">
+            <div class="bar-fill" id="dtHeroBar" style="width:45%; background:var(--red);"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono); font-size:10px; margin-top:6px; padding-top:5px; border-top:1px solid #151821;">
+            <span id="dtFactMatch" style="color:var(--muted);">Сверка с socket_1: света нет (совпадает с графиком)</span>
+            <span id="dtUpdatedLabel" style="color:var(--dim);">ДТЕК API</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TODAY SCHEDULE PANEL -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title" id="dtTodayTitle">СЕГОДНЯ (09.11) // ГРАФИК ПО ЧАСАМ</span>
+          <span class="panel-meta" id="dtTodaySummary">🟢 7ч 00м • 🔴 17ч 00м</span>
+        </div>
+
+        <div class="dtek-track-wrap" id="dtTodayTrack"></div>
+        <div class="dtek-axis">
+          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+        </div>
+
+        <div class="dtek-slot-list" id="dtTodayList"></div>
+      </div>
+
+      <!-- TOMORROW SCHEDULE PANEL -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title" id="dtTomorrowTitle">ЗАВТРА (10.11) // ГРАФИК ПО ЧАСАМ</span>
+          <span class="panel-meta" id="dtTomorrowSummary">🟢 6ч 30м • 🔴 17ч 30м</span>
+        </div>
+
+        <div class="dtek-track-wrap" id="dtTomorrowTrack"></div>
+        <div class="dtek-axis">
+          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+        </div>
+
+        <div class="dtek-slot-list" id="dtTomorrowList"></div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- TAB 4: БУНКЕР & SNEK (SMART LIFE DEVICES & SENSORS)       -->
+    <!-- ========================================================= -->
+    <div class="tab-view" id="view-bunker">
+
+      <!-- Snek Terrarium Strip -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">SNEK_POWER_STRIP // ТЕРРАРИУМ И РАБОЧЕЕ МЕСТО</span>
+          <span class="panel-meta" id="snekOnlineMeta">ONLINE</span>
+        </div>
+        <div class="stat-grid-4">
+          <button class="ctrl-btn active-amber" id="btnSnekHeat" onclick="toggleSnek('switch_2')">
+            <span>ОБОГРЕВ ЗМЕИ (SW2)</span>
+            <span class="sub" id="subSnekHeat">ВКЛЮЧЕНО</span>
+          </button>
+          <button class="ctrl-btn" id="btnSnekLight" onclick="toggleSnek('switch_1')">
+            <span>СВЕТ ЗМЕИ (SW1)</span>
+            <span class="sub" id="subSnekLight">ВЫКЛ</span>
+          </button>
+          <button class="ctrl-btn active-blue" id="btnSnekLamp" onclick="toggleSnek('switch_3')">
+            <span>WI-FI ЛАМПА (SW3)</span>
+            <span class="sub" id="subSnekLamp">ВКЛЮЧЕНО</span>
+          </button>
+          <button class="ctrl-btn active-green" id="btnSnekLaptop" onclick="toggleSnek('switch_4')">
+            <span>НОУТБУК (SW4)</span>
+            <span class="sub" id="subSnekLaptop">ВКЛЮЧЕНО</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- CO Sensor & Room Airbox -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">БЕЗОПАСНОСТЬ И КЛИМАТ (CO + AIRBOX)</span>
+          <span class="panel-meta">ДАТЧИКИ БУНКЕРА</span>
+        </div>
+        <div class="rato-stats">
+          <div class="kv-box">
+            <div class="kv-k">УГАРНЫЙ ГАЗ</div>
+            <div class="kv-v" id="bkCoPpm" style="color:var(--green);">0 ppm</div>
+          </div>
+          <div class="kv-box">
+            <div class="kv-k">БАТАРЕЯ CO</div>
+            <div class="kv-v" id="bkCoBatt">99%</div>
+          </div>
+          <div class="kv-box">
+            <div class="kv-k">ВЛАЖНОСТЬ</div>
+            <div class="kv-v" id="bkHum">71%</div>
+          </div>
+          <div class="kv-box">
+            <div class="kv-k">CO2 В КОМНАТЕ</div>
+            <div class="kv-v" id="bkCo2">373 ppm</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Room Lights & Purifier -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ОСВЕЩЕНИЕ И ОЧИСТИТЕЛЬ ВОЗДУХА</span>
+          <span class="panel-meta" id="chandelierMeta">ЛЮСТРА: 0/4 В СЕТИ</span>
+        </div>
+        <div class="btn-group-3">
+          <button class="ctrl-btn" id="btnBacklight" onclick="toggleRoomDev('backlight_1', 'switch_led', 'backlight')">
+            <span>ПОДСВЕТКА</span>
+            <span class="sub" id="subBacklight">ВКЛ</span>
+          </button>
+          <button class="ctrl-btn" id="btnLedBulb" onclick="toggleRoomDev('led_bulb', 'switch_led', 'ledbulb')">
+            <span>ЛАМПА W5K</span>
+            <span class="sub" id="subLedBulb">ВКЛ</span>
+          </button>
+          <button class="ctrl-btn" id="btnPurifier" onclick="toggleRoomDev('air_purifier', 'switch', 'purifier')">
+            <span>ОЧИСТИТЕЛЬ</span>
+            <span class="sub" id="subPurifier">ВЫКЛ</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Offline & Blackout Protection Info -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">АВТОНОМНОСТЬ БЕЗ ИНТЕРНЕТА И ПРИ РАЗРЯДЕ В 0%</span>
+          <span class="panel-meta">OFFLINE ENGINE</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <div style="font-family:var(--mono); font-size:10px; color:var(--muted);">
+            • При падении интернета пульт управляет Oukitel (LAN 6607) и Shelly (192.168.86.192) напрямую по Wi-Fi.<br>
+            • Если станция сядет в 0% и выключится роутер, время простоя фиксируется и автоматически сшивается при следующем запуске.
+          </div>
+          <button class="btn-icon" style="flex-shrink:0;" onclick="if(window.IskraNative) window.IskraNative.requestUnrestrictedBattery();">
+            БАТАРЕЯ ОК
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- TAB 5: ГЕНЕРАТОР RATO // РАСХОД БЕНЗИНА, ТО И НАСТРОЙКИ   -->
+    <!-- ========================================================= -->
+    <div class="tab-view" id="view-gen">
+
+      <!-- PANEL 1: DAILY FUEL CONSUMPTION IN LITERS -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">РАСХОД БЕНЗИНА (В ЛИТРАХ ПО НАГРУЗКЕ)</span>
+          <span class="panel-meta" id="genFuelFormulaMeta">Холостой 0.60 л/ч • Макс 1.80 л/ч</span>
+        </div>
+
+        <div class="stat-grid-4">
+          <div class="stat-cell" style="border-left: 3px solid var(--amber);">
+            <div class="stat-label">
+              <span>СЕГОДНЯ (СУТКИ)</span>
+              <span id="gfTodayTime" style="color:var(--amber);">0м</span>
+            </div>
+            <div class="stat-val" id="gfTodayLiters" style="color:var(--amber);">0.00 л</div>
+            <div class="stat-sub" id="gfTodaySub">0 пусков • ср. нагрузка 0 Вт</div>
+          </div>
+
+          <div class="stat-cell" style="border-left: 3px solid var(--cyan);">
+            <div class="stat-label">
+              <span>ВЧЕРА (СУТКИ)</span>
+              <span id="gfYestTime" style="color:var(--cyan);">0м</span>
+            </div>
+            <div class="stat-val" id="gfYestLiters" style="color:var(--text);">0.00 л</div>
+            <div class="stat-sub" id="gfYestSub">За прошлые сутки</div>
+          </div>
+
+          <div class="stat-cell">
+            <div class="stat-label">
+              <span>ЗА 7 ДНЕЙ</span>
+              <span id="gf7dTime" style="color:var(--muted);">0ч</span>
+            </div>
+            <div class="stat-val" id="gf7dLiters" style="font-size:18px;">0.0 л</div>
+            <div class="stat-sub" id="gf7dSub">Всего за неделю</div>
+          </div>
+
+          <div class="stat-cell">
+            <div class="stat-label">
+              <span>ЗА 30 ДНЕЙ / ВСЕГО</span>
+              <span id="gf30dTime" style="color:var(--muted);">0ч</span>
+            </div>
+            <div class="stat-val" id="gf30dLiters" style="font-size:18px;">0.0 л</div>
+            <div class="stat-sub" id="gf30dSub">Общие моточасы: 0.0 ч</div>
+          </div>
+        </div>
+
+        <div class="sec-label" style="margin-top:8px;">
+          <span>ПОСУТОЧНЫЙ ЖУРНАЛ СОЖЖЁННОГО БЕНЗИНА</span>
+          <span id="gfDaysCount">По дням</span>
+        </div>
+        <div class="log-list" id="genDailyFuelList" style="max-height:175px;"></div>
+      </div>
+
+      <!-- PANEL 2: UNOBTRUSIVE MAINTENANCE (OIL & SPARK PLUG) -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ОБСЛУЖИВАНИЕ (МАСЛО И СВЕЧА ЗАЖИГАНИЯ)</span>
+          <span class="panel-meta" id="genTotalMotoMeta">МОТОЧАСЫ: 1.7 ч</span>
+        </div>
+
+        <!-- Oil Card -->
+        <div class="maint-card" id="oilMaintCard">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono);">
+            <div>
+              <span style="font-size:11px; font-weight:700; color:var(--text);">МАСЛО В КАРТЕРЕ (<span id="oilVolBadge">0.55</span> л • 10W-30/40)</span>
+              <div style="font-size:9px; color:var(--muted); margin-top:1px;" id="oilLastDate">Отметка: С начала учёта</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:14px; font-weight:700; color:var(--cyan);" id="oilHoursStat">1.7 / 50 ч</div>
+              <div style="font-size:9px; color:var(--muted);" id="oilStatusHint">Осталось ~48.3 ч</div>
+            </div>
+          </div>
+          <div class="bar-track" style="height:5px; margin:7px 0;">
+            <div class="bar-fill" id="oilProgBar" style="width:4%; background:var(--cyan);"></div>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+            <button class="ctrl-btn active-blue" style="text-align:center; padding:6px;" onclick="markOilNow()">
+              <span>МАСЛО ЗАМЕНЕНО (0ч)</span>
+            </button>
+            <button class="ctrl-btn" style="text-align:center; padding:6px;" onclick="toggleAdjustRow('oilAdjRow')">
+              <span>ЗАБЫЛА ОТМЕТИТЬ / ЧАСЫ</span>
+            </button>
+          </div>
+          <div class="adjust-row" id="oilAdjRow">
+            <input type="number" step="0.5" min="0" class="cfg-input" id="inpOilUsedH" placeholder="Сколько часов уже накатано на этом масле? (напр. 5)">
+            <button class="ctrl-btn active-amber" style="padding:5px 10px;" onclick="applyOilCustomHours()">ОК</button>
+          </div>
+        </div>
+
+        <!-- Spark Plug Card -->
+        <div class="maint-card" id="sparkMaintCard" style="margin-bottom:0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono);">
+            <div>
+              <span style="font-size:11px; font-weight:700; color:var(--text);">СВЕЧА ЗАЖИГАНИЯ (F7TC / NGK BPR6ES)</span>
+              <div style="font-size:9px; color:var(--muted); margin-top:1px;" id="sparkLastDate">Отметка: Прошлая зима</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:14px; font-weight:700; color:var(--green);" id="sparkHoursStat">1.7 / 100 ч</div>
+              <div style="font-size:9px; color:var(--muted);" id="sparkStatusHint">Осталось ~98.3 ч</div>
+            </div>
+          </div>
+          <div class="bar-track" style="height:5px; margin:7px 0;">
+            <div class="bar-fill" id="sparkProgBar" style="width:2%; background:var(--green);"></div>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+            <button class="ctrl-btn active-green" style="text-align:center; padding:6px;" onclick="markSparkNow()">
+              <span>СВЕЧА ЗАМЕНЕНА (0ч)</span>
+            </button>
+            <button class="ctrl-btn" style="text-align:center; padding:6px;" onclick="toggleAdjustRow('sparkAdjRow')">
+              <span>ЗАДАТЬ НАРАБОТКУ СВЕЧИ</span>
+            </button>
+          </div>
+          <div class="adjust-row" id="sparkAdjRow">
+            <input type="number" step="1" min="0" class="cfg-input" id="inpSparkUsedH" placeholder="Сколько часов уже прошла эта свеча? (напр. 15)">
+            <button class="ctrl-btn active-amber" style="padding:5px 10px;" onclick="applySparkCustomHours()">ОК</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANEL 3: CONFIGURABLE GENERATOR PASSPORT -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ПАСПОРТ И НАСТРОЙКИ ГЕНЕРАТОРА</span>
+          <span class="panel-meta" id="genSavedNotice">Rato R210 • 212 см³</span>
+        </div>
+
+        <div class="cfg-field" style="margin-bottom:6px;">
+          <label class="cfg-label">МОДЕЛЬ ГЕНЕРАТОРА / ДВИГАТЕЛЬ</label>
+          <input type="text" class="cfg-input" id="cfgGenModel" value="Rato R3000 (R210 212cc)">
+        </div>
+
+        <div class="cfg-grid">
+          <div class="cfg-field">
+            <label class="cfg-label">НОМИНАЛЬНАЯ МОЩНОСТЬ (КВТ)</label>
+            <input type="number" step="0.1" class="cfg-input" id="cfgNomKw" value="2.7">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">МАКСИМАЛЬНАЯ МОЩНОСТЬ (КВТ)</label>
+            <input type="number" step="0.1" class="cfg-input" id="cfgMaxKw" value="3.0">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">РАСХОД ПРИ 100% НАГРУЗКИ (Л/Ч)</label>
+            <input type="number" step="0.05" class="cfg-input" id="cfgFuelFull" value="1.8">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">РАСХОД ПРИ ½ НАГРУЗКИ (Л/Ч)</label>
+            <input type="number" step="0.05" class="cfg-input" id="cfgFuelHalf" value="1.2">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ОБЪЁМ МАСЛА В КАРТЕРЕ (Л)</label>
+            <input type="number" step="0.05" class="cfg-input" id="cfgOilVol" value="0.55">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ОБЪЁМ ТОПЛИВНОГО БАКА (Л)</label>
+            <input type="number" step="0.5" class="cfg-input" id="cfgTankL" value="14.5">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ИНТЕРВАЛ ЗАМЕНЫ МАСЛА (Ч)</label>
+            <input type="number" step="5" class="cfg-input" id="cfgOilInt" value="50">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ИНТЕРВАЛ ЗАМЕНЫ СВЕЧИ (Ч)</label>
+            <input type="number" step="10" class="cfg-input" id="cfgSparkInt" value="100">
+          </div>
+        </div>
+
+        <div class="cfg-field" style="margin-bottom:8px;">
+          <label class="cfg-label">ОБЩИЕ МОТОЧАСЫ ГЕНЕРАТОРА (ДЛЯ КОРРЕКТИРОВКИ, Ч)</label>
+          <input type="number" step="0.1" class="cfg-input" id="cfgTotalMotoH" placeholder="Оставь пустым, чтобы не менять текущие моточасы">
+        </div>
+
+        <button class="ctrl-btn active-amber" style="width:100%; text-align:center; align-items:center; padding:9px;" onclick="saveGenSettings()">
+          <span>СОХРАНИТЬ ПАРАМЕТРЫ ГЕНЕРАТОРА</span>
+        </button>
+      </div>
+
+      <!-- PANEL 4: UI LANGUAGE SWITCHER (RU / EN FOR REDDIT SCREENSHOTS) -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">ЯЗЫК ИНТЕРФЕЙСА / UI LANGUAGE</span>
+          <span class="panel-meta" id="langMetaBadge">REDDIT SCREENSHOT MODE</span>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+          <button class="ctrl-btn active-blue" id="btnLangRu" style="text-align:center; align-items:center; padding:9px;" onclick="setLang('ru')">
+            <span>РУССКИЙ (RU)</span>
+            <span class="sub">Полный адрес и локализация</span>
+          </button>
+          <button class="ctrl-btn" id="btnLangEn" style="text-align:center; align-items:center; padding:9px;" onclick="setLang('en')">
+            <span>ENGLISH (EN)</span>
+            <span class="sub">Reddit Screenshots (Address Hidden)</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- BOTTOM NAVIGATION: SHELLY-STYLE MINIMALIST ICON DOCK (5 SCREENS) -->
+  <div class="bottom-bar">
+    <!-- 1. ПУЛЬТ (Lightning Bolt) -->
+    <button class="tab-btn active" id="nav-ctrl" onclick="switchTab('ctrl')" aria-label="Пульт">
+      <svg viewBox="0 0 24 24">
+        <path d="M13 2L4.5 13.5H11.5L10.5 22L19.5 10.5H12.5L13 2Z"/>
+      </svg>
+    </button>
+    <!-- 2. СТАТИСТИКА И ГРАФИКИ (Telemetry Pulse & Bars) -->
+    <button class="tab-btn" id="nav-grafana" onclick="switchTab('grafana')" aria-label="Статистика">
+      <svg viewBox="0 0 24 24">
+        <path d="M3 20H21"/>
+        <path d="M6 20V14"/>
+        <path d="M10 20V11"/>
+        <path d="M14 20V15"/>
+        <path d="M18 20V9"/>
+        <path d="M4 10L8.5 6.5L13 10.5L19.5 4"/>
+        <circle cx="19.5" cy="4" r="1.4" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+    <!-- 3. РАСПИСАНИЕ ОТКЛЮЧЕНИЙ ДТЕК (Schedule Calendar + Spark) -->
+    <button class="tab-btn" id="nav-dtek" onclick="switchTab('dtek')" aria-label="Расписание ДТЕК">
+      <svg viewBox="0 0 24 24">
+        <rect x="3" y="4.5" width="18" height="16.5" rx="3"/>
+        <path d="M8 2.5V6"/>
+        <path d="M16 2.5V6"/>
+        <path d="M3 9.5H21"/>
+        <path d="M12.6 11.5L9.6 15.3H12.2L11.4 18.6L14.4 14.8H11.8L12.6 11.5Z"/>
+      </svg>
+    </button>
+    <!-- 4. БУНКЕР & SNEK (Minimalist House) -->
+    <button class="tab-btn" id="nav-bunker" onclick="switchTab('bunker')" aria-label="Бункер и Снэк">
+      <svg viewBox="0 0 24 24">
+        <path d="M3 10.5L12 3L21 10.5"/>
+        <path d="M5.5 8.5V19.5C5.5 20.05 5.95 20.5 6.5 20.5H17.5C18.05 20.5 18.5 20.05 18.5 19.5V8.5"/>
+        <path d="M9.5 20.5V14.5C9.5 13.95 9.95 13.5 10.5 13.5H13.5C14.05 13.5 14.5 13.95 14.5 14.5V20.5"/>
+      </svg>
+    </button>
+    <!-- 5. ГЕНЕРАТОР, БЕНЗИН И ТО (Minimalist Shelly-style Gear) -->
+    <button class="tab-btn" id="nav-gen" onclick="switchTab('gen')" aria-label="Генератор и ТО">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </div>
+
+<script>
+  let S = null;
+  let cooldownSec = 30;
+  let selectedPeriod = 'DAY'; // DAY, 24H, 7D, 30D, CUSTOM
+  const TAB_ORDER = ['ctrl', 'grafana', 'dtek', 'bunker', 'gen'];
+  let activeTabId = 'ctrl';
+  let genConfigInitialized = false;
+  let LANG = localStorage.getItem('iskra_lang') || 'ru';
+  function isEn() { return LANG === 'en'; }
+
+  const STATIC_EN_MAP = {
+    'ЗАРЯД СТАНЦИИ': 'STATION BATTERY SOC',
+    'ВХОД / ВЫХОД': 'POWER IN / OUT',
+    'СЕТЬ ДТЕК (SOCKET-1)': 'DTEK GRID (SOCKET-1)',
+    'ТЕКУЩАЯ ФАЗА': 'ACTIVE CYCLE PHASE',
+    'УПРАВЛЕНИЕ ЗАРЯДКОЙ И ЛИНИЯМИ ПИТАНИЯ': 'CHARGING PROFILE & INPUT ROUTING',
+    'ГЕНЕРАТОР (SOCKET-2)': 'GENERATOR (SOCKET-2)',
+    'ПРОФИЛЬ МОЩНОСТИ ЗАРЯДКИ (OUKITEL P1000E+)': 'AC CHARGING POWER PROFILE (OUKITEL P1000E+)',
+    '1. СБРОС (0%)': '1. IDLE / WARMUP',
+    'Прогрев / Холостой (~85W в бат.)': '0% Limit (~85W trickle)',
+    '2. ОТ ГЕНЕРАТОРА': '2. GENERATOR (AVR)',
+    'Щадящий 45% (~540W в бат. без рывков)': 'Smooth 45% (~540W anti-surge)',
+    '3. ОТ СЕТИ (FAST)': '3. GRID FAST',
+    'Максимум 100% (1200W в батарею)': 'Max 100% (1200W fast charge)',
+    'ВЫХОДЫ СТАНЦИИ OUKITEL': 'OUKITEL OUTPUT BUSES',
+    'LED ФОНАРЬ': 'LED LIGHT',
+    'ГЕНЕРАТОР RATO & РЕЛЕ ГЛУШЕНИЯ SHELLY': 'RATO R3000 GENSET & SHELLY KILL RELAY',
+    'СТАТУС': 'STATUS',
+    'ТЕКУЩИЙ ПУСК': 'RUN TIME',
+    'ТЕМП. РЕЛЕ': 'RELAY TEMP',
+    'МОТОЧАСЫ': 'ENGINE HRS',
+    'ОТМЕНИТЬ СТОП': 'CANCEL STOP',
+    'ЗАГЛУШИТЬ СРАЗУ': 'KILL IMMEDIATELY',
+    'ПРОДУВКА ПЕРЕД СТОПОМ:': 'IDLE COOLDOWN TIMER:',
+    '15с': '15s',
+    '30с': '30s',
+    '45с': '45s',
+    '60с': '60s',
+    'УМНЫЙ СТОП RATO (2 ФАЗЫ)': 'SMART 2-STAGE STOP',
+    'СТОП СРАЗУ': 'KILL NOW',
+    'Прямой импульс': 'Instant Relay Pulse',
+    'ВЫБОР ПЕРИОДА АНАЛИТИКИ': 'ANALYTICS TIME RANGE',
+    'ДЕНЬ': 'TODAY',
+    'СУТКИ 24Ч': '24 HOURS',
+    'НЕДЕЛЯ': '7 DAYS',
+    'МЕСЯЦ': '30 DAYS',
+    'ПЕРИОД': 'CUSTOM',
+    'НАЧАЛО ПЕРИОДА:': 'START DATE:',
+    'КОНЕЦ ПЕРИОДА:': 'END DATE:',
+    'СВОДКА ВРЕМЕНИ ЗА ПЕРИОД (ТОЧНОСТЬ ДО МИНУТЫ)': 'POWER SOURCE BREAKDOWN (MINUTE-EXACT)',
+    'СБРОС ЛОГА': 'RESET LOG',
+    'ОТ СЕТИ (ДТЕК)': 'DTEK UTILITY GRID',
+    'ОТ ГЕНЕРАТОРА (RATO)': 'RATO R3000 GENSET',
+    'БЕЗ СЕТИ И ГЕНЕРАТОРА': 'OUKITEL BATTERY',
+    'ВСЕ СЕЛО В 0 / ОФФЛАЙН': 'FULL BLACKOUT (0%)',
+    'ГРАФИК ИСТОЧНИКОВ: СЕТЬ ДТЕК / ГЕНЕРАТОР RATO / СТАНЦИЯ': 'POWER SOURCE TIMELINE: GRID / GENERATOR / BATTERY',
+    'ДО МИНУТЫ': '1-MIN RES',
+    'ХРОНОЛОГИЯ ПЕРЕКЛЮЧЕНИЙ (ТОЧНО ДО МИНУТЫ)': 'SOURCE SWITCHING LOG (MINUTE-EXACT)',
+    'МОЩНОСТЬ: ВХОД, ЗАРЯД БАТАРЕИ И НАГРУЗКА ДОМА (ВТ)': 'POWER TELEMETRY: INPUT, BATTERY CHARGE & HOME LOAD (W)',
+    'ЗАРЯД СТАНЦИИ OUKITEL P1000E+ (0% — 100%)': 'OUKITEL P1000E+ STATE OF CHARGE (0% — 100%)',
+    'ЕМКОСТЬ 1024 Вт·ч': 'CAPACITY 1024 Wh',
+    'Линия': 'Series',
+    'Параметр': 'Metric',
+    'Сейчас': 'Current',
+    'Мин': 'Min',
+    'Макс': 'Max',
+    'Среднее': 'Avg',
+    'ОБНОВИТЬ': 'REFRESH',
+    'SNEK_POWER_STRIP // ТЕРРАРИУМ И РАБОЧЕЕ МЕСТО': 'SNEK_POWER_STRIP // BOA TERRARIUM & WORKSTATION',
+    'ОБОГРЕВ ЗМЕИ (SW2)': 'BOA HEAT LAMP (SW2)',
+    'СВЕТ ЗМЕИ (SW1)': 'BOA DAYLIGHT (SW1)',
+    'WI-FI ЛАМПА (SW3)': 'AMBIENT LAMP (SW3)',
+    'НОУТБУК (SW4)': 'LEGION LAPTOP (SW4)',
+    'БЕЗОПАСНОСТЬ И КЛИМАТ (CO + AIRBOX)': 'BUNKER SAFETY & CLIMATE (CO + AIRBOX)',
+    'ДАТЧИКИ БУНКЕРА': 'BUNKER SENSORS',
+    'УГАРНЫЙ ГАЗ': 'CARBON MONOXIDE',
+    'БАТАРЕЯ CO': 'CO SENSOR BATT',
+    'ВЛАЖНОСТЬ': 'HUMIDITY',
+    'CO2 В КОМНАТЕ': 'INDOOR CO2',
+    'ОСВЕЩЕНИЕ И ОЧИСТИТЕЛЬ ВОЗДУХА': 'ROOM LIGHTING & AIR PURIFIER',
+    'ПОДСВЕТКА': 'BACKLIGHT',
+    'ЛАМПА W5K': 'MAIN BULB',
+    'ОЧИСТИТЕЛЬ': 'AIR PURIFIER',
+    'АВТОНОМНОСТЬ БЕЗ ИНТЕРНЕТА И ПРИ РАЗРЯДЕ В 0%': '100% OFFLINE LAN AUTONOMY & BLACKOUT RECOVERY',
+    'БАТАРЕЯ ОК': 'DOZE WHITELIST',
+    'РАСХОД БЕНЗИНА (В ЛИТРАХ ПО НАГРУЗКЕ)': 'FUEL CONSUMPTION (LITERS BY LOAD)',
+    'СЕГОДНЯ (СУТКИ)': 'TODAY (24H)',
+    'ВЧЕРА (СУТКИ)': 'YESTERDAY',
+    'ЗА 7 ДНЕЙ': 'LAST 7 DAYS',
+    'ЗА 30 ДНЕЙ / ВСЕГО': '30 DAYS / TOTAL',
+    'ПОСУТОЧНЫЙ ЖУРНАЛ СОЖЖЁННОГО БЕНЗИНА': 'DAILY FUEL CONSUMPTION LOG',
+    'ОБСЛУЖИВАНИЕ (МАСЛО И СВЕЧА ЗАЖИГАНИЯ)': 'MAINTENANCE (CRANKCASE OIL & SPARK PLUG)',
+    'МАСЛО ЗАМЕНЕНО (0ч)': 'MARK OIL CHANGED (0h)',
+    'ЗАБЫЛА ОТМЕТИТЬ / ЧАСЫ': 'ADJUST OIL HOURS',
+    'СВЕЧА ЗАЖИГАНИЯ (F7TC / NGK BPR6ES)': 'SPARK PLUG (F7TC / NGK BPR6ES)',
+    'СВЕЧА ЗАМЕНЕНА (0ч)': 'MARK PLUG CHANGED (0h)',
+    'ЗАДАТЬ НАРАБОТКУ СВЕЧИ': 'SET PLUG HOURS',
+    'ПАСПОРТ И НАСТРОЙКИ ГЕНЕРАТОРА': 'GENERATOR PASSPORT & SPECS',
+    'МОДЕЛЬ ГЕНЕРАТОРА / ДВИГАТЕЛЬ': 'GENERATOR MODEL / ENGINE',
+    'НОМИНАЛЬНАЯ МОЩНОСТЬ (КВТ)': 'RATED POWER (KW)',
+    'МАКСИМАЛЬНАЯ МОЩНОСТЬ (КВТ)': 'PEAK POWER (KW)',
+    'РАСХОД ПРИ 100% НАГРУЗКИ (Л/Ч)': 'BURN RATE @ 100% LOAD (L/H)',
+    'РАСХОД ПРИ ½ НАГРУЗКИ (Л/Ч)': 'BURN RATE @ 50% LOAD (L/H)',
+    'ОБЪЁМ МАСЛА В КАРТЕРЕ (Л)': 'CRANKCASE OIL VOLUME (L)',
+    'ОБЪЁМ ТОПЛИВНОГО БАКА (Л)': 'FUEL TANK CAPACITY (L)',
+    'ИНТЕРВАЛ ЗАМЕНЫ МАСЛА (Ч)': 'OIL CHANGE INTERVAL (HRS)',
+    'ИНТЕРВАЛ ЗАМЕНЫ СВЕЧИ (Ч)': 'SPARK PLUG INTERVAL (HRS)',
+    'ОБЩИЕ МОТОЧАСЫ ГЕНЕРАТОРА (ДЛЯ КОРРЕКТИРОВКИ, Ч)': 'TOTAL ENGINE HOURS OVERRIDE (HRS)',
+    'СОХРАНИТЬ ПАРАМЕТРЫ ГЕНЕРАТОРА': 'SAVE GENERATOR PARAMETERS'
+  };
+  const STATIC_RU_MAP = {};
+  Object.keys(STATIC_EN_MAP).forEach(k => { STATIC_RU_MAP[STATIC_EN_MAP[k]] = k; });
+
+  function setLang(lang) {
+    LANG = lang === 'en' ? 'en' : 'ru';
+    localStorage.setItem('iskra_lang', LANG);
+    document.getElementById('btnLangRu').className = 'ctrl-btn ' + (LANG === 'ru' ? 'active-blue' : '');
+    document.getElementById('btnLangEn').className = 'ctrl-btn ' + (LANG === 'en' ? 'active-blue' : '');
+
+    const dict = LANG === 'en' ? STATIC_EN_MAP : STATIC_RU_MAP;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.nodeValue ? node.nodeValue.trim() : '';
+      if (t && dict[t]) {
+        node.nodeValue = dict[t];
+      }
+    }
+
+    // Update legend dots in Grafana panel 1
+    const dtekGroupHdr = document.querySelector('#view-dtek .panel-title');
+    if (dtekGroupHdr) {
+      const grp = (S && S.dtekSchedule && S.dtekSchedule.group) ? S.dtekSchedule.group : '33.1';
+      dtekGroupHdr.innerHTML = isEn()
+        ? `DTEK KYIV GRID // GROUP <span id="dtGroupBadge" style="color:var(--cyan);">${grp}</span>`
+        : `ДТЕК КЕМ // ГРУПА <span id="dtGroupBadge" style="color:var(--cyan);">${grp}</span>`;
+    }
+    const oilHdr = document.querySelector('#oilMaintCard span');
+    if (oilHdr) {
+      const v = document.getElementById('oilVolBadge') ? document.getElementById('oilVolBadge').textContent : '0.55';
+      oilHdr.innerHTML = isEn()
+        ? `CRANKCASE OIL (<span id="oilVolBadge">${v}</span> L • SAE 10W-30/40)`
+        : `МАСЛО В КАРТЕРЕ (<span id="oilVolBadge">${v}</span> л • 10W-30/40)`;
+    }
+    const offlineBox = document.querySelector('#view-bunker .panel:last-child div div');
+    if (offlineBox) {
+      offlineBox.innerHTML = isEn()
+        ? '• When WAN internet drops, Iskra controls Oukitel (TCP 6607) and Shelly (192.168.86.192) directly over local LAN.<br>• If battery hits 0% and router shuts down, blackout duration is persisted and stitched automatically on reboot.'
+        : '• При падении интернета пульт управляет Oukitel (LAN 6607) и Shelly (192.168.86.192) напрямую по Wi-Fi.<br>• Если станция сядет в 0% и выключится роутер, время простоя фиксируется и автоматически сшивается при следующем запуске.';
+    }
+    setCooldownSec(cooldownSec);
+    if (S) renderAll(S);
+  }
+
+  function initDates() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayIso = `${y}-${m}-${d}`;
+    const fEl = document.getElementById('inpDateFrom');
+    const tEl = document.getElementById('inpDateTo');
+    if (fEl && !fEl.value) fEl.value = todayIso;
+    if (tEl && !tEl.value) tEl.value = todayIso;
+  }
+
+  function switchTab(id, swipeDir) {
+    if (!TAB_ORDER.includes(id)) return;
+    activeTabId = id;
+    const offset = swipeDir === 'next' ? '18px' : (swipeDir === 'prev' ? '-18px' : '0px');
+    document.documentElement.style.setProperty('--swipe-dir', offset);
+
+    TAB_ORDER.forEach(t => {
+      const vEl = document.getElementById('view-' + t);
+      const nEl = document.getElementById('nav-' + t);
+      if (vEl) vEl.classList.toggle('active', t === id);
+      if (nEl) nEl.classList.toggle('active', t === id);
+    });
+    window.scrollTo(0, 0);
+    if (id === 'grafana' && S) {
+      requestAnimationFrame(() => renderGrafanaPanels(S));
+    } else if (id === 'dtek' && S) {
+      requestAnimationFrame(() => renderDtekSchedule(S));
+    } else if (id === 'gen' && S) {
+      requestAnimationFrame(() => renderGeneratorTab(S));
+    }
+  }
+
+  // Horizontal Swipe Gesture Navigation across all 4 tabs
+  (function initSwipeNavigation() {
+    let startX = 0, startY = 0, tracking = false;
+    document.addEventListener('touchstart', e => {
+      if (!e.touches || e.touches.length !== 1) return;
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'select') {
+        tracking = false;
+        return;
+      }
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+      if (!tracking || !e.changedTouches || e.changedTouches.length !== 1) return;
+      tracking = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = e.changedTouches[0].clientY - startY;
+      if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+        const curIdx = TAB_ORDER.indexOf(activeTabId);
+        if (dx < 0 && curIdx < TAB_ORDER.length - 1) {
+          switchTab(TAB_ORDER[curIdx + 1], 'next');
+        } else if (dx > 0 && curIdx > 0) {
+          switchTab(TAB_ORDER[curIdx - 1], 'prev');
+        }
+      }
+    }, { passive: true });
+  })();
+
+  function refreshDtekNow() {
+    if (window.IskraNative && window.IskraNative.refreshDtek) {
+      window.IskraNative.refreshDtek();
+    } else if (window.IskraNative) {
+      window.IskraNative.forceRefresh();
+    }
+  }
+
+  function setPeriod(p) {
+    selectedPeriod = p;
+    const map = { 'DAY': 'pBtnDay', '24H': 'pBtn24h', '7D': 'pBtn7d', '30D': 'pBtn30d', 'CUSTOM': 'pBtnCustom' };
+    Object.keys(map).forEach(k => {
+      document.getElementById(map[k]).classList.toggle('active', k === p);
+    });
+    document.getElementById('customDateRow').classList.toggle('active', p === 'CUSTOM');
+    if (S) renderGrafanaPanels(S);
+  }
+
+  function fmtDur(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (isEn()) {
+      if (d > 0) return `${d}d ${h}h ${m}m`;
+      if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
+      if (m > 0) return `${m}m`;
+      return `${s}s`;
+    }
+    if (d > 0) return `${d}д ${h}ч ${m}м`;
+    if (h > 0) return `${h}ч ${String(m).padStart(2,'0')}м`;
+    if (m > 0) return `${m}м`;
+    return `${s}с`;
+  }
+
+  function fmtMinExact(ms) {
+    const totalMin = Math.max(0, Math.round(ms / 60000));
+    const d = Math.floor(totalMin / 1440);
+    const h = Math.floor((totalMin % 1440) / 60);
+    const m = totalMin % 60;
+    if (isEn()) {
+      if (d > 0) return `${d}d ${h}h ${m}m`;
+      if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
+      return `${m} min`;
+    }
+    if (d > 0) return `${d}д ${h}ч ${m}м`;
+    if (h > 0) return `${h}ч ${String(m).padStart(2,'0')}м`;
+    return `${m} мин`;
+  }
+
+  function fmtMin(min) {
+    min = Math.max(0, Math.floor(min || 0));
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    if (isEn()) return h > 0 ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m`;
+    return h > 0 ? `${h}ч ${String(m).padStart(2,'0')}м` : `${m}м`;
+  }
+
+  function fmtTimeHM(ms) {
+    const dt = new Date(ms);
+    return String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
+  }
+
+  function fmtDateDM(ms) {
+    const dt = new Date(ms);
+    return String(dt.getDate()).padStart(2,'0') + '.' + String(dt.getMonth() + 1).padStart(2,'0');
+  }
+
+  function forceRefresh() {
+    if (window.IskraNative) window.IskraNative.forceRefresh();
+  }
+
+  function resetHistory() {
+    if (window.IskraNative) window.IskraNative.resetHistory();
+  }
+
+  function setCooldownSec(sec) {
+    cooldownSec = sec;
+    [15, 30, 45, 60].forEach(v => {
+      document.getElementById('cd' + v).classList.toggle('active', v === sec);
+    });
+    document.getElementById('killSubText').textContent = isEn()
+      ? `Drop 0% -> Cooldown ${sec}s -> Shelly Kill`
+      : `Сброс 0% -> Продувка ${sec}с -> Shelly`;
+  }
+
+  function setChargeLimit(val) {
+    if (window.IskraNative) window.IskraNative.setOukitelChargeLimit(val);
+  }
+
+  function setChargeProfile(profile) {
+    if (!window.IskraNative) return;
+    if (profile === 'IDLE') {
+      window.IskraNative.setOukitelChargeLimit(0);
+    } else if (profile === 'RATO') {
+      window.IskraNative.setOukitelChargeLimit(45);
+    } else if (profile === 'MAX') {
+      window.IskraNative.setOukitelChargeLimit(100);
+    }
+  }
+
+  function togglePlug(devId, key) {
+    if (!S || !window.IskraNative) return;
+    const cur = key === 's2' ? S.smartLife.socket2.switchOn : S.smartLife.socket1.switchOn;
+    window.IskraNative.toggleSmartLifeSwitch(devId, 'switch_1', !cur);
+  }
+
+  function toggleOukAc() {
+    if (!S || !window.IskraNative) return;
+    window.IskraNative.toggleOukitelAc(!S.oukitel.acSwitch);
+  }
+
+  function toggleOukDc() {
+    if (!S || !window.IskraNative) return;
+    window.IskraNative.toggleOukitelDc(!S.oukitel.dcSwitch);
+  }
+
+  function toggleOukLed() {
+    if (!S || !window.IskraNative) return;
+    const next = S.oukitel.ledStatus > 0 ? 0 : 1;
+    window.IskraNative.toggleOukitelLed(next);
+  }
+
+  function startSmartStop() {
+    if (window.IskraNative) window.IskraNative.startSmartRatoStop(cooldownSec);
+  }
+
+  function cancelStop() {
+    if (window.IskraNative) window.IskraNative.cancelRatoStop();
+  }
+
+  function killNow() {
+    if (window.IskraNative) window.IskraNative.killRatoNow();
+  }
+
+  function toggleSnek(code) {
+    if (!S || !window.IskraNative) return;
+    const sk = S.smartLife.snek;
+    const map = {
+      'switch_1': sk.light,
+      'switch_2': sk.heat,
+      'switch_3': sk.wifiLamp,
+      'switch_4': sk.laptop
+    };
+    window.IskraNative.toggleSmartLifeSwitch('snek_strip', code, !map[code]);
+  }
+
+  function toggleRoomDev(devId, code, key) {
+    if (!S || !window.IskraNative) return;
+    const sl = S.smartLife;
+    const cur = key === 'backlight' ? sl.backlightOn : (key === 'ledbulb' ? sl.ledBulbOn : sl.purifierOn);
+    window.IskraNative.toggleSmartLifeSwitch(devId, code, !cur);
+  }
+
+  window.onIskraState = function(data) {
+    S = (typeof data === 'string') ? JSON.parse(data) : data;
+    renderAll(S);
+  };
+
+  function renderAll(d) {
+    const ouk = d.oukitel || {};
+    const rato = d.rato || {};
+    const sl = d.smartLife || {};
+
+    // Top Navbar
+    const led = document.getElementById('navLed');
+    const modeTag = document.getElementById('navModeTag');
+    if (d.currentMode === 'GENERATOR') {
+      led.style.background = 'var(--amber)';
+      modeTag.textContent = isEn() ? 'RATO GENSET' : 'ОТ ГЕНЕРАТОРА RATO';
+      modeTag.style.color = 'var(--amber)';
+    } else if (d.currentMode === 'GRID') {
+      led.style.background = 'var(--green)';
+      modeTag.textContent = isEn() ? 'DTEK GRID' : 'ОТ СЕТИ ДТЕК';
+      modeTag.style.color = 'var(--green)';
+    } else if (d.currentMode === 'BLACKOUT_ZERO') {
+      led.style.background = 'var(--zero)';
+      modeTag.textContent = isEn() ? 'BLACKOUT 0%' : 'ВСЕ В 0% / ОФФЛАЙН';
+      modeTag.style.color = 'var(--muted)';
+    } else {
+      led.style.background = 'var(--red)';
+      modeTag.textContent = isEn() ? 'BATTERY UPS' : 'НА СТАНЦИИ (БЕЗ СЕТИ)';
+      modeTag.style.color = 'var(--red)';
+    }
+
+    const netTag = document.getElementById('navNetTag');
+    if (d.internetOnline) {
+      netTag.textContent = isEn() ? 'WAN ONLINE' : 'ИHТЕРНЕТ ОК';
+      netTag.style.color = 'var(--green)';
+    } else {
+      netTag.textContent = isEn() ? 'OFFLINE LAN' : 'БЕЗ ИНТЕРНЕТА (LAN)';
+      netTag.style.color = 'var(--amber)';
+    }
+
+    const coPpm = (sl.co && sl.co.ppm) || 0;
+    const navCo = document.getElementById('navCoTag');
+    navCo.textContent = `CO: ${coPpm} ppm`;
+    navCo.style.color = coPpm > 15 ? 'var(--red)' : 'var(--green)';
+
+    const dtNow = new Date(d.timestamp || Date.now());
+    document.getElementById('btnSync').textContent =
+      String(dtNow.getHours()).padStart(2,'0') + ':' +
+      String(dtNow.getMinutes()).padStart(2,'0') + ':' +
+      String(dtNow.getSeconds()).padStart(2,'0');
+
+    // Stat Cell 1: Oukitel SOC
+    const pct = ouk.batteryPct || 0;
+    document.getElementById('stOukConn').textContent = ouk.online ? ouk.connectionMode.toUpperCase() : (isEn() ? 'OFFLINE' : 'ОФФЛАЙН');
+    document.getElementById('stBattPct').textContent = `${pct}%`;
+    document.getElementById('stBattBar').style.width = `${pct}%`;
+    const eta = ouk.totalInputW > ouk.totalOutputW
+      ? `${isEn() ? 'CHG' : 'ЗАРЯД'}: ~${fmtMin(ouk.remainChargeMinutes || ouk.remainMinutes)} • ${ouk.tempC}°C`
+      : `${isEn() ? 'DISCHG' : 'РАЗРЯД'}: ~${fmtMin(ouk.remainMinutes)} • ${ouk.tempC}°C`;
+    document.getElementById('stBattEta').textContent = eta;
+
+    // Stat Cell 2: Power Balance
+    const inW = ouk.totalInputW || 0;
+    const outW = ouk.totalOutputW || 0;
+    const netW = inW - outW;
+    document.getElementById('stInW').textContent = `${inW}W`;
+    document.getElementById('stOutW').textContent = `${outW}W`;
+    const netEl = document.getElementById('stNetW');
+    netEl.textContent = (netW >= 0 ? `+${netW} W` : `${netW} W`);
+    netEl.style.color = netW >= 0 ? 'var(--green)' : 'var(--amber)';
+    document.getElementById('stFlowSub').textContent = isEn()
+      ? `TO BATT: ${ouk.acInputW || 0}W • HOME: ${outW}W`
+      : `В БАТАРЕЮ: ${ouk.acInputW || 0}W • ДОМ: ${outW}W`;
+    const loadPct = Math.min(100, Math.round((Math.max(inW, outW) / 1800) * 100));
+    document.getElementById('stLoadBar').style.width = `${loadPct}%`;
+
+    // Stat Cell 3: DTEK Grid (socket_1)
+    const gridUp = !!sl.gridOnline;
+    const gState = document.getElementById('stGridState');
+    const gTitle = document.getElementById('stGridTitle');
+    const gSub = document.getElementById('stGridSub');
+    if (gridUp) {
+      gState.textContent = 'ONLINE';
+      gState.className = 'tag-online';
+      gTitle.textContent = isEn() ? 'GRID ONLINE' : 'СВЕТ ЕСТЬ';
+      gTitle.style.color = 'var(--green)';
+      const v1 = (sl.socket1 && sl.socket1.voltageV) ? `${sl.socket1.voltageV.toFixed(1)} V • ${sl.socket1.powerW.toFixed(0)} W` : `In ${inW} W`;
+      gSub.textContent = `socket_1: ${v1}`;
+    } else {
+      gState.textContent = 'OFFLINE';
+      gState.className = 'tag-offline';
+      gTitle.textContent = isEn() ? 'BLACKOUT' : 'НЕТ СВЕТА';
+      gTitle.style.color = 'var(--red)';
+      gSub.textContent = isEn()
+        ? `Outage: ${fmtDur(d.darkDurationSec)} (socket_1 0V)`
+        : `Вне сети: ${fmtDur(d.darkDurationSec)} (socket_1 0V)`;
+    }
+
+    // Stat Cell 4: Current Phase
+    if (d.currentMode === 'GRID') {
+      document.getElementById('stCyclePct').textContent = `${pct}%`;
+      document.getElementById('stCyclePct').style.color = 'var(--green)';
+      document.getElementById('stCycleTime').textContent = pct >= 99
+        ? (isEn() ? 'CHARGED 100%' : 'ЗАРЯЖЕНО 100%')
+        : `~${fmtMin(ouk.remainChargeMinutes || ouk.remainMinutes)} ${isEn() ? 'to 100%' : 'до 100%'}`;
+      document.getElementById('stCycleTime').style.color = 'var(--green)';
+      document.getElementById('stCycleBar').style.width = `${pct}%`;
+      document.getElementById('stCycleBar').style.background = 'var(--green)';
+      document.getElementById('stCycleSub').textContent = isEn()
+        ? `On DTEK Grid for: ${fmtDur(d.modeDurationSec)}`
+        : `От сети ДТЕК уже: ${fmtDur(d.modeDurationSec)}`;
+    } else {
+      const cycPct = d.cycleProgressPct || 0;
+      const cycMin = Math.floor((d.cycleElapsedSec || 0) / 60);
+      const cycTarget = Math.floor((d.cycleTargetSec || 3600) / 60);
+      const uM = isEn() ? 'm' : 'м';
+      document.getElementById('stCyclePct').textContent = `${cycPct}%`;
+      document.getElementById('stCyclePct').style.color = 'var(--amber)';
+      document.getElementById('stCycleTime').textContent = `${cycMin}${uM} / ${cycTarget}${uM}`;
+      document.getElementById('stCycleTime').style.color = 'var(--amber)';
+      document.getElementById('stCycleBar').style.width = `${cycPct}%`;
+      document.getElementById('stCycleBar').style.background = 'var(--amber)';
+      document.getElementById('stCycleSub').textContent = isEn()
+        ? (d.currentMode === 'GENERATOR' ? 'Phase: Rato Charging (60m target)' : 'Phase: Battery UPS (120m target)')
+        : (d.currentMode === 'GENERATOR' ? 'Фаза: Зарядка от Rato (цель 60м)' : 'Фаза: На станции (цель 120м)');
+    }
+
+    // Smart Sockets Routing (socket_2 strictly 0 when Shelly is offline!)
+    if (sl.socket2) {
+      const s2 = sl.socket2;
+      const s2St = document.getElementById('s2Status');
+      s2St.textContent = s2.online ? (s2.switchOn ? 'ON' : 'OFF') : (isEn() ? 'UNPOWERED' : 'ОБЕСТОЧЕН');
+      s2St.className = (s2.online && s2.switchOn) ? 'tag-online' : 'tag-offline';
+      document.getElementById('s2Metrics').textContent = s2.online
+        ? `${s2.voltageV.toFixed(1)} V • ${s2.powerW.toFixed(0)} W`
+        : '0.0 V • 0 W';
+      document.getElementById('s2Metrics').style.color = s2.online ? 'var(--text)' : 'var(--muted)';
+      const b2 = document.getElementById('btnSocket2');
+      b2.className = 'ctrl-btn ' + (s2.online && s2.switchOn ? 'active-amber' : '');
+      document.getElementById('btnSocket2Txt').textContent = isEn()
+        ? (s2.online ? `RATO LINE: ${s2.switchOn ? 'ON' : 'OFF'}` : 'RATO LINE: UNPOWERED')
+        : (s2.online ? `ЛИНИЯ RATO: ${s2.switchOn ? 'ВКЛ' : 'ВЫКЛ'}` : 'ЛИНИЯ RATO: ОБЕСТОЧЕНА');
+    }
+
+    if (sl.socket1) {
+      const s1 = sl.socket1;
+      const s1St = document.getElementById('s1Status');
+      s1St.textContent = s1.online ? (s1.switchOn ? 'ON' : 'OFF') : (isEn() ? 'OFFLINE' : 'ОБЕСТОЧЕН');
+      s1St.className = s1.online ? 'tag-online' : 'tag-offline';
+      document.getElementById('s1Metrics').textContent = s1.online
+        ? `${s1.voltageV.toFixed(1)} V • ${s1.powerW.toFixed(0)} W`
+        : '0.0 V • 0 W';
+      document.getElementById('s1Metrics').style.color = s1.online ? 'var(--text)' : 'var(--muted)';
+      const b1 = document.getElementById('btnSocket1');
+      b1.className = 'ctrl-btn ' + (s1.online && s1.switchOn ? 'active-green' : '');
+      document.getElementById('btnSocket1Txt').textContent = isEn()
+        ? (s1.online ? `DTEK GRID: ${s1.switchOn ? 'ON' : 'OFF'}` : 'DTEK GRID: OFFLINE')
+        : (s1.online ? `СЕТЬ ДТЕК: ${s1.switchOn ? 'ВКЛ' : 'ВЫКЛ'}` : 'СЕТЬ ДТЕК: ОБЕСТОЧЕНА');
+    }
+
+    // Charging Limit Buttons
+    const lim = ouk.acChargingLimit ?? 45;
+    document.getElementById('curLimitLabel').textContent = isEn()
+      ? `LIMIT: ${lim}% (TO BATT ${ouk.acInputW || 0}W)`
+      : `ЛИМИТ: ${lim}% (В БАТАРЕЮ ${ouk.acInputW || 0}W)`;
+    document.getElementById('btnModeIdle').className = 'ctrl-btn ' + (lim <= 10 ? 'active-blue' : '');
+    document.getElementById('btnModeRato').className = 'ctrl-btn ' + (lim > 10 && lim <= 75 ? 'active-amber' : '');
+    document.getElementById('btnModeMax').className  = 'ctrl-btn ' + (lim > 75 ? 'active-green' : '');
+
+    [0, 30, 45, 60, 100].forEach(v => {
+      const el = document.getElementById('stLim' + v);
+      if (el) el.classList.toggle('active', Math.abs(lim - v) <= 5);
+    });
+
+    const onWord = isEn() ? 'ENABLED' : 'ВКЛЮЧЕНО';
+    const offWord = isEn() ? 'OFF' : 'ВЫКЛ';
+    // Oukitel Outputs
+    document.getElementById('oukOutMeta').textContent = `AC: ${ouk.acOutputW || outW}W • DC: ${ouk.dcOutputW || 0}W`;
+    document.getElementById('btnOukAc').className = 'ctrl-btn ' + (ouk.acSwitch ? 'active-blue' : '');
+    document.getElementById('subOukAc').textContent = ouk.acSwitch ? onWord : offWord;
+    document.getElementById('btnOukDc').className = 'ctrl-btn ' + (ouk.dcSwitch ? 'active-blue' : '');
+    document.getElementById('subOukDc').textContent = ouk.dcSwitch ? onWord : offWord;
+    document.getElementById('btnOukLed').className = 'ctrl-btn ' + (ouk.ledStatus > 0 ? 'active-amber' : '');
+    document.getElementById('subOukLed').textContent = ouk.ledStatus > 0 ? onWord : offWord;
+
+    // Generator Rato & Shelly
+    document.getElementById('shellyMeta').textContent = isEn()
+      ? `${rato.shellyIp} • ${rato.shellyOnline ? 'SHELLY ONLINE' : 'SHELLY OFFLINE'}`
+      : `${rato.shellyIp} • ${rato.shellyOnline ? 'SHELLY В СЕТИ' : 'SHELLY ОБЕСТОЧЕН'}`;
+    const rSt = document.getElementById('ratoState');
+    rSt.textContent = rato.running ? (isEn() ? 'RUNNING' : 'РАБОТАЕТ') : (isEn() ? 'STOPPED' : 'ЗАГЛУШЕН');
+    rSt.style.color = rato.running ? 'var(--amber)' : 'var(--muted)';
+    document.getElementById('ratoUptime').textContent = rato.running ? fmtDur(rato.uptimeSec) : (isEn() ? '0s' : '0с');
+    document.getElementById('ratoTemp').textContent = `${(rato.tempC || 0).toFixed(1)}°C`;
+    document.getElementById('ratoMoto').textContent = `${rato.motoHours || 0} ${isEn() ? 'h' : 'ч'}`;
+
+    // Cooldown State Machine
+    const phase = rato.shutdownPhase || 'IDLE';
+    const cdBox = document.getElementById('cooldownBox');
+    if (phase !== 'IDLE') {
+      cdBox.classList.add('active');
+      document.getElementById('cdPhaseTitle').textContent = `${isEn() ? 'STOP PHASE' : 'СТАТУС СТОПА'}: ${phase}`;
+      document.getElementById('cdCountdown').textContent = `${rato.shutdownRemainingSec || 0}s`;
+      document.getElementById('cdMsg').textContent = rato.shutdownMessage || '';
+      const pctCd = rato.shutdownTotalSec > 0
+        ? Math.round((rato.shutdownRemainingSec / rato.shutdownTotalSec) * 100)
+        : 0;
+      document.getElementById('cdBar').style.width = `${pctCd}%`;
+    } else {
+      cdBox.classList.remove('active');
+    }
+
+    // Bunker & Snek Tab
+    if (sl.snek) {
+      const sk = sl.snek;
+      document.getElementById('snekOnlineMeta').textContent = sk.online ? 'ONLINE' : 'OFFLINE';
+      const setSw = (id, subId, on, cls) => {
+        document.getElementById(id).className = 'ctrl-btn ' + (on ? cls : '');
+        document.getElementById(subId).textContent = on ? onWord : offWord;
+      };
+      setSw('btnSnekHeat', 'subSnekHeat', sk.heat, 'active-amber');
+      setSw('btnSnekLight', 'subSnekLight', sk.light, 'active-blue');
+      setSw('btnSnekLamp', 'subSnekLamp', sk.wifiLamp, 'active-blue');
+      setSw('btnSnekLaptop', 'subSnekLaptop', sk.laptop, 'active-green');
+    }
+
+    if (sl.co) {
+      document.getElementById('bkCoPpm').textContent = `${sl.co.ppm} ppm`;
+      document.getElementById('bkCoBatt').textContent = `${sl.co.batteryPct}%`;
+    }
+    if (sl.climate) {
+      document.getElementById('bkHum').textContent = `${sl.climate.humidityPct.toFixed(0)}%`;
+      document.getElementById('bkCo2').textContent = `${sl.climate.co2Ppm} ppm`;
+    }
+    const shortOn = isEn() ? 'ON' : 'ВКЛ';
+    document.getElementById('chandelierMeta').textContent = isEn()
+      ? `CHANDELIER: ${sl.chandelierOnlineCount || 0}/4 ONLINE`
+      : `ЛЮСТРА: ${sl.chandelierOnlineCount || 0}/4 В СЕТИ`;
+    document.getElementById('btnBacklight').className = 'ctrl-btn ' + (sl.backlightOn ? 'active-blue' : '');
+    document.getElementById('subBacklight').textContent = sl.backlightOn ? shortOn : offWord;
+    document.getElementById('btnLedBulb').className = 'ctrl-btn ' + (sl.ledBulbOn ? 'active-blue' : '');
+    document.getElementById('subLedBulb').textContent = sl.ledBulbOn ? shortOn : offWord;
+    document.getElementById('btnPurifier').className = 'ctrl-btn ' + (sl.purifierOn ? 'active-green' : '');
+    document.getElementById('subPurifier').textContent = sl.purifierOn ? shortOn : offWord;
+
+    if (document.getElementById('view-grafana').classList.contains('active')) {
+      renderGrafanaPanels(d);
+    }
+    renderDtekSchedule(d);
+    renderGeneratorTab(d);
+  }
+
+  // =========================================================================
+  // GENERATOR RATO R3000 // FUEL IN LITERS, OIL, SPARK PLUG & PASSPORT
+  // =========================================================================
+
+  function getGenConfig(d) {
+    const cfg = (d && d.rato && d.rato.config) ? d.rato.config : {};
+    const nomKw = Math.round(Number(cfg.nomKw || 2.7) * 100) / 100;
+    const maxKw = Math.round(Number(cfg.maxKw || 3.0) * 100) / 100;
+    const tankL = Math.round(Number(cfg.tankL || 14.5) * 100) / 100;
+    const oilVolL = Math.round(Number(cfg.oilVolL || 0.55) * 100) / 100;
+    const fuelFullLh = Math.round(Number(cfg.fuelFullLh || 1.8) * 100) / 100;
+    const fuelHalfLh = Math.round(Number(cfg.fuelHalfLh || 1.2) * 100) / 100;
+    const oilIntervalH = Number(cfg.oilIntervalH || 50);
+    const sparkIntervalH = Number(cfg.sparkIntervalH || 100);
+    const model = cfg.model || 'Rato R3000 (R210 212cc)';
+
+    // Derive idle burn rate (L/h at 0W) and slope (L/kWh) from 50% and 100% passport points
+    const idleLh = Math.max(0.25, 2 * fuelHalfLh - fuelFullLh);
+    const slopePerKw = Math.max(0.05, (fuelFullLh - idleLh) / Math.max(0.5, nomKw));
+    return { model, nomKw, maxKw, tankL, oilVolL, fuelFullLh, fuelHalfLh, oilIntervalH, sparkIntervalH, idleLh, slopePerKw };
+  }
+
+  function calcIntervalFuelLiters(durMs, avgW, cfg) {
+    if (!durMs || durMs <= 0) return 0;
+    const hours = durMs / 3600_000;
+    const w = (avgW && avgW > 40) ? avgW : 880; // typical charging load if not recorded
+    const kw = Math.min(cfg.maxKw, w / 1000.0);
+    const rateLh = cfg.idleLh + kw * cfg.slopePerKw;
+    return hours * rateLh;
+  }
+
+  function toggleAdjustRow(rowId) {
+    const el = document.getElementById(rowId);
+    if (el) el.classList.toggle('active');
+  }
+
+  function markOilNow() {
+    if (window.IskraNative && window.IskraNative.markOilChanged) {
+      window.IskraNative.markOilChanged(0.0);
+    }
+    const adj = document.getElementById('oilAdjRow');
+    if (adj) adj.classList.remove('active');
+  }
+
+  function applyOilCustomHours() {
+    const inp = document.getElementById('inpOilUsedH');
+    const val = parseFloat(inp ? inp.value : '0') || 0.0;
+    if (window.IskraNative && window.IskraNative.markOilChanged) {
+      window.IskraNative.markOilChanged(val);
+    }
+    const adj = document.getElementById('oilAdjRow');
+    if (adj) adj.classList.remove('active');
+  }
+
+  function markSparkNow() {
+    if (window.IskraNative && window.IskraNative.markSparkChanged) {
+      window.IskraNative.markSparkChanged(0.0);
+    }
+    const adj = document.getElementById('sparkAdjRow');
+    if (adj) adj.classList.remove('active');
+  }
+
+  function applySparkCustomHours() {
+    const inp = document.getElementById('inpSparkUsedH');
+    const val = parseFloat(inp ? inp.value : '0') || 0.0;
+    if (window.IskraNative && window.IskraNative.markSparkChanged) {
+      window.IskraNative.markSparkChanged(val);
+    }
+    const adj = document.getElementById('sparkAdjRow');
+    if (adj) adj.classList.remove('active');
+  }
+
+  function saveGenSettings() {
+    const payload = {
+      model: document.getElementById('cfgGenModel').value || 'Rato R3000 (R210 212cc)',
+      nomKw: parseFloat(document.getElementById('cfgNomKw').value) || 2.7,
+      maxKw: parseFloat(document.getElementById('cfgMaxKw').value) || 3.0,
+      fuelFullLh: parseFloat(document.getElementById('cfgFuelFull').value) || 1.8,
+      fuelHalfLh: parseFloat(document.getElementById('cfgFuelHalf').value) || 1.2,
+      oilVolL: parseFloat(document.getElementById('cfgOilVol').value) || 0.55,
+      tankL: parseFloat(document.getElementById('cfgTankL').value) || 14.5,
+      oilIntervalH: parseInt(document.getElementById('cfgOilInt').value, 10) || 50,
+      sparkIntervalH: parseInt(document.getElementById('cfgSparkInt').value, 10) || 100
+    };
+    const motoStr = document.getElementById('cfgTotalMotoH').value;
+    if (motoStr !== '' && !isNaN(parseFloat(motoStr))) {
+      payload.totalMotoHours = parseFloat(motoStr);
+      document.getElementById('cfgTotalMotoH').value = '';
+    }
+    if (window.IskraNative && window.IskraNative.saveGenConfig) {
+      window.IskraNative.saveGenConfig(JSON.stringify(payload));
+      const nEl = document.getElementById('genSavedNotice');
+      if (nEl) {
+        nEl.textContent = isEn() ? '✓ SAVED' : '✓ СОХРАНЕНО';
+        nEl.style.color = 'var(--green)';
+        setTimeout(() => {
+          nEl.textContent = payload.model;
+          nEl.style.color = 'var(--dim)';
+        }, 2500);
+      }
+    }
+  }
+
+  function renderGeneratorTab(d) {
+    if (!d) return;
+    const cfg = getGenConfig(d);
+    const rato = d.rato || {};
+    const nowMs = d.timestamp || Date.now();
+    const dt = new Date(nowMs);
+    const todayStartMs = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime();
+    const yestStartMs = todayStartMs - 86400_000;
+    const d7StartMs = todayStartMs - 6 * 86400_000;
+    const d30StartMs = todayStartMs - 29 * 86400_000;
+
+    document.getElementById('genFuelFormulaMeta').textContent = isEn()
+      ? `Idle ${cfg.idleLh.toFixed(2)} L/h • ½ ${cfg.fuelHalfLh.toFixed(2)} L/h • Max ${cfg.fuelFullLh.toFixed(2)} L/h`
+      : `Холостой ${cfg.idleLh.toFixed(2)} л/ч • ½ ${cfg.fuelHalfLh.toFixed(2)} л/ч • Макс ${cfg.fuelFullLh.toFixed(2)} л/ч`;
+
+    // Populate config inputs once so typing isn't overwritten
+    if (!genConfigInitialized && rato.config) {
+      genConfigInitialized = true;
+      document.getElementById('cfgGenModel').value = cfg.model;
+      document.getElementById('cfgNomKw').value = cfg.nomKw;
+      document.getElementById('cfgMaxKw').value = cfg.maxKw;
+      document.getElementById('cfgFuelFull').value = cfg.fuelFullLh;
+      document.getElementById('cfgFuelHalf').value = cfg.fuelHalfLh;
+      document.getElementById('cfgOilVol').value = cfg.oilVolL;
+      document.getElementById('cfgTankL').value = cfg.tankL;
+      document.getElementById('cfgOilInt').value = cfg.oilIntervalH;
+      document.getElementById('cfgSparkInt').value = cfg.sparkIntervalH;
+    }
+
+    // Split generator intervals by calendar day for exact daily fuel tracking
+    const rawIntervals = (d.history && d.history.intervals) ? d.history.intervals : [];
+    let todayMs = 0, todayL = 0, todayRuns = 0, todayWeightedW = 0;
+    let yestMs = 0, yestL = 0, yestRuns = 0;
+    let d7Ms = 0, d7L = 0;
+    let d30Ms = 0, d30L = 0;
+
+    const dailyMap = {}; // key YYYY-MM-DD -> { label, durMs, liters, runs, weightedW }
+
+    rawIntervals.forEach(iv => {
+      if (iv.mode !== 'GENERATOR') return;
+      const s = iv.startMs || 0;
+      const e = Math.min(nowMs, iv.endMs || nowMs);
+      if (e <= s) return;
+
+      const w = (iv.avgInW && iv.avgInW > 40) ? iv.avgInW : ((iv.avgOutW && iv.avgOutW > 40) ? iv.avgOutW : 880);
+
+      // Slice across midnight if a generator run spans midnight
+      let cur = s;
+      while (cur < e) {
+        const cDt = new Date(cur);
+        const dayStart = new Date(cDt.getFullYear(), cDt.getMonth(), cDt.getDate(), 0, 0, 0, 0).getTime();
+        const nextDay = dayStart + 86400_000;
+        const segEnd = Math.min(e, nextDay);
+        const dur = segEnd - cur;
+        const lit = calcIntervalFuelLiters(dur, w, cfg);
+
+        const key = `${cDt.getFullYear()}-${String(cDt.getMonth()+1).padStart(2,'0')}-${String(cDt.getDate()).padStart(2,'0')}`;
+        if (!dailyMap[key]) {
+          dailyMap[key] = { key, ts: dayStart, label: fmtDateDM(dayStart), durMs: 0, liters: 0, runs: 0, weightedW: 0 };
+        }
+        dailyMap[key].durMs += dur;
+        dailyMap[key].liters += lit;
+        dailyMap[key].runs += 1;
+        dailyMap[key].weightedW += dur * w;
+
+        if (dayStart === todayStartMs) {
+          todayMs += dur;
+          todayL += lit;
+          todayRuns += 1;
+          todayWeightedW += dur * w;
+        } else if (dayStart === yestStartMs) {
+          yestMs += dur;
+          yestL += lit;
+          yestRuns += 1;
+        }
+        if (dayStart >= d7StartMs) {
+          d7Ms += dur;
+          d7L += lit;
+        }
+        if (dayStart >= d30StartMs) {
+          d30Ms += dur;
+          d30L += lit;
+        }
+        cur = segEnd;
+      }
+    });
+
+    const lUnit = isEn() ? 'L' : 'л';
+    const hUnit = isEn() ? 'h' : 'ч';
+
+    const todayAvgW = todayMs > 0 ? Math.round(todayWeightedW / todayMs) : 0;
+    document.getElementById('gfTodayTime').textContent = fmtMinExact(todayMs);
+    document.getElementById('gfTodayLiters').textContent = `${todayL.toFixed(2)} ${lUnit}`;
+    document.getElementById('gfTodaySub').textContent = todayMs > 0
+      ? (isEn() ? `${todayRuns} run(s) • avg ${todayAvgW} W` : `${todayRuns} пуск(а) • ср. ${todayAvgW} Вт`)
+      : (isEn() ? 'No generator runs today' : 'Генератор сегодня не запускался');
+
+    document.getElementById('gfYestTime').textContent = fmtMinExact(yestMs);
+    document.getElementById('gfYestLiters').textContent = `${yestL.toFixed(2)} ${lUnit}`;
+    document.getElementById('gfYestSub').textContent = yestMs > 0
+      ? (isEn() ? `${yestRuns} run(s) yesterday` : `${yestRuns} пуск(а) за вчера`)
+      : (isEn() ? 'No runs' : 'Без запусков');
+
+    document.getElementById('gf7dTime').textContent = fmtMinExact(d7Ms);
+    document.getElementById('gf7dLiters').textContent = `${d7L.toFixed(2)} ${lUnit}`;
+    document.getElementById('gf7dSub').textContent = isEn() ? 'Past 7 days' : 'За последние 7 суток';
+
+    const totalMotoH = Number(rato.motoHours || 0);
+    const totalEstL = Math.max(d30L, totalMotoH * ((cfg.idleLh + (0.88 * cfg.slopePerKw))));
+    document.getElementById('gf30dTime').textContent = `${totalMotoH.toFixed(1)} ${hUnit}`;
+    document.getElementById('gf30dLiters').textContent = `${totalEstL.toFixed(1)} ${lUnit}`;
+    document.getElementById('gf30dSub').textContent = isEn()
+      ? `Total engine hours: ${totalMotoH.toFixed(1)} h`
+      : `Общий накат: ${totalMotoH.toFixed(1)} моточасов`;
+
+    // Render Daily Fuel List (newest day first)
+    const dayKeys = Object.keys(dailyMap).sort().reverse();
+    document.getElementById('gfDaysCount').textContent = isEn()
+      ? `${dayKeys.length} active day(s)`
+      : `${dayKeys.length} дн. с запусками`;
+    const listEl = document.getElementById('genDailyFuelList');
+    if (listEl) {
+      listEl.innerHTML = '';
+      if (dayKeys.length === 0) {
+        listEl.innerHTML = `<div style="font-family:var(--mono); font-size:10px; color:var(--muted); padding:6px;">${isEn() ? 'No generator runs recorded yet.' : 'Пока нет записанных запусков генератора.'}</div>`;
+      } else {
+        dayKeys.forEach(k => {
+          const item = dailyMap[k];
+          const avgW = item.durMs > 0 ? Math.round(item.weightedW / item.durMs) : 880;
+          const avgLh = item.durMs > 0 ? (item.liters / (item.durMs / 3600_000)) : cfg.fuelHalfLh;
+          const isToday = item.ts === todayStartMs;
+          const isYest = item.ts === yestStartMs;
+          const tag = isToday
+            ? (isEn() ? ' (TODAY)' : ' (СЕГОДНЯ)')
+            : (isYest ? (isEn() ? ' (YESTERDAY)' : ' (ВЧЕРА)') : '');
+
+          const row = document.createElement('div');
+          row.className = 'log-row mode-GENERATOR';
+          row.innerHTML = `
+            <div>
+              <div style="font-weight:700; color:var(--text);">${item.label}${tag} • ${fmtMinExact(item.durMs)}</div>
+              <div style="color:var(--muted); margin-top:1px;">${isEn()
+                ? `Runs: ${item.runs} • Avg load ~${avgW} W (${avgLh.toFixed(2)} L/h)`
+                : `Пусков: ${item.runs} • Ср. нагрузка ~${avgW} Вт (${avgLh.toFixed(2)} л/ч)`}</div>
+            </div>
+            <div style="font-weight:700; font-size:13px; color:var(--amber); text-align:right;">
+              ${item.liters.toFixed(2)} ${lUnit}
+            </div>
+          `;
+          listEl.appendChild(row);
+        });
+      }
+    }
+
+    // Panel 2: Maintenance (Oil & Spark Plug)
+    document.getElementById('genTotalMotoMeta').textContent = isEn()
+      ? `TOTAL HOURS: ${totalMotoH.toFixed(1)} H`
+      : `ОБЩИЙ НАКАТ: ${totalMotoH.toFixed(1)} Ч`;
+    document.getElementById('oilVolBadge').textContent = cfg.oilVolL.toFixed(2);
+
+    const oilUsed = Number(rato.oilUsedHours ?? totalMotoH);
+    const oilRem = Math.max(0, cfg.oilIntervalH - oilUsed);
+    const oilPct = Math.min(100, Math.round((oilUsed / Math.max(1, cfg.oilIntervalH)) * 100));
+    const oilDue = oilUsed >= cfg.oilIntervalH * 0.9;
+
+    const oilDateRaw = rato.oilResetDate || '';
+    const oilDateDisp = (!oilDateRaw || oilDateRaw === 'С начала учёта')
+      ? (isEn() ? 'Since tracking start' : 'С начала учёта')
+      : oilDateRaw;
+
+    document.getElementById('oilLastDate').textContent = isEn()
+      ? `Last reset: ${oilDateDisp}`
+      : `Последняя отметка: ${oilDateDisp}`;
+    document.getElementById('oilHoursStat').textContent = `${oilUsed.toFixed(1)} / ${cfg.oilIntervalH} ${hUnit}`;
+    document.getElementById('oilHoursStat').style.color = oilDue ? 'var(--amber)' : 'var(--cyan)';
+    document.getElementById('oilStatusHint').textContent = oilUsed >= cfg.oilIntervalH
+      ? (isEn() ? `Oil change recommended (${cfg.oilVolL} L)` : `Неплохо бы при случае поменять масло (${cfg.oilVolL} л)`)
+      : (isEn() ? `~${oilRem.toFixed(1)} engine hours until oil change` : `До замены ~${oilRem.toFixed(1)} моточасов`);
+    document.getElementById('oilStatusHint').style.color = oilDue ? 'var(--amber)' : 'var(--muted)';
+    document.getElementById('oilProgBar').style.width = `${oilPct}%`;
+    document.getElementById('oilProgBar').style.background = oilDue ? 'var(--amber)' : 'var(--cyan)';
+    document.getElementById('oilMaintCard').classList.toggle('due-warn', oilDue);
+
+    const sparkUsed = Number(rato.sparkUsedHours ?? totalMotoH);
+    const sparkRem = Math.max(0, cfg.sparkIntervalH - sparkUsed);
+    const sparkPct = Math.min(100, Math.round((sparkUsed / Math.max(1, cfg.sparkIntervalH)) * 100));
+    const sparkDue = sparkUsed >= cfg.sparkIntervalH * 0.9;
+
+    const sparkDateRaw = rato.sparkResetDate || '';
+    const sparkDateDisp = (!sparkDateRaw || sparkDateRaw === 'Прошлая зима')
+      ? (isEn() ? 'Last winter' : 'Прошлая зима')
+      : sparkDateRaw;
+
+    document.getElementById('sparkLastDate').textContent = isEn()
+      ? `Last reset: ${sparkDateDisp}`
+      : `Последняя отметка: ${sparkDateDisp}`;
+    document.getElementById('sparkHoursStat').textContent = `${sparkUsed.toFixed(1)} / ${cfg.sparkIntervalH} ${hUnit}`;
+    document.getElementById('sparkHoursStat').style.color = sparkDue ? 'var(--amber)' : 'var(--green)';
+    document.getElementById('sparkStatusHint').textContent = sparkUsed >= cfg.sparkIntervalH
+      ? (isEn() ? `Inspect or replace spark plug when convenient` : `При случае проверь нагар / махни свечу`)
+      : (isEn() ? `~${sparkRem.toFixed(1)} h until inspection/replacement` : `До проверки/замены ~${sparkRem.toFixed(1)} ч`);
+    document.getElementById('sparkStatusHint').style.color = sparkDue ? 'var(--amber)' : 'var(--muted)';
+    document.getElementById('sparkProgBar').style.width = `${sparkPct}%`;
+    document.getElementById('sparkProgBar').style.background = sparkDue ? 'var(--amber)' : 'var(--green)';
+    document.getElementById('sparkMaintCard').classList.toggle('due-warn', sparkDue);
+  }
+
+  // =========================================================================
+  // DTEK KYIV SCHEDULE
+  // =========================================================================
+
+  function minToHM(m) {
+    const mm = Math.max(0, Math.round(m || 0));
+    if (mm >= 1440 && mm !== 1440) {
+      const wrap = mm % 1440;
+      return String(Math.floor(wrap / 60)).padStart(2, '0') + ':' + String(wrap % 60).padStart(2, '0');
+    }
+    const h = Math.floor(mm / 60);
+    const r = mm % 60;
+    return String(h).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+  }
+
+  function fmtDurMin(m) {
+    const mm = Math.max(0, Math.round(m || 0));
+    const h = Math.floor(mm / 60);
+    const r = mm % 60;
+    if (isEn()) {
+      if (h > 0 && r > 0) return `${h}h ${String(r).padStart(2, '0')}m`;
+      if (h > 0) return `${h}h 00m`;
+      return `${r}m`;
+    }
+    if (h > 0 && r > 0) return `${h}ч ${String(r).padStart(2, '0')}м`;
+    if (h > 0) return `${h}ч 00м`;
+    return `${r}м`;
+  }
+
+  function renderDtekSchedule(d) {
+    if (!d) return;
+    const sched = d.dtekSchedule;
+    if (!sched || !sched.today) return;
+
+    const nowMs = d.timestamp || Date.now();
+    const dt = new Date(nowMs);
+    const nowMin = dt.getHours() * 60 + dt.getMinutes();
+    const localIso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+
+    // Handle midnight rollover automatically if local date already advanced to tomorrow's date
+    let todayObj = sched.today;
+    let tomorrowObj = sched.tomorrow || { slots: [], date: '' };
+    if (tomorrowObj.date && tomorrowObj.date.slice(0, 10) === localIso) {
+      todayObj = tomorrowObj;
+      tomorrowObj = { slots: [], date: '' };
+    }
+
+    const todaySlots = (todayObj && todayObj.slots) ? todayObj.slots : [];
+    const tomorrowSlots = (tomorrowObj && tomorrowObj.slots) ? tomorrowObj.slots : [];
+
+    document.getElementById('dtGroupBadge').textContent = sched.group || '33.1';
+    // In English mode, automatically mask personal street address for safe Reddit screenshots!
+    document.getElementById('dtAddrBadge').textContent = isEn()
+      ? 'Kyiv, UA (DTEK Grid)'
+      : (sched.address || 'Kyiv, UA');
+
+    if (sched.fetchedAtMs) {
+      document.getElementById('dtUpdatedLabel').textContent = isEn()
+        ? `Updated at ${fmtTimeHM(sched.fetchedAtMs)}`
+        : `Обновлено в ${fmtTimeHM(sched.fetchedAtMs)}`;
+    }
+
+    // Find current active slot in todaySlots
+    let curSlot = todaySlots.find(s => nowMin >= s.start && nowMin < s.end) || todaySlots[todaySlots.length - 1];
+    if (curSlot) {
+      const isOff = curSlot.type === 'Definite';
+      let effStart = curSlot.start;
+      let effEnd = curSlot.end;
+      let nextSlot = null;
+
+      // If current slot reaches 24:00 (1440) and tomorrow starts with the same state, stitch across midnight!
+      if (effEnd >= 1440 && tomorrowSlots.length > 0) {
+        if (tomorrowSlots[0].type === curSlot.type) {
+          effEnd = 1440 + tomorrowSlots[0].end;
+          if (tomorrowSlots.length > 1) {
+            nextSlot = tomorrowSlots[1];
+          }
+        } else {
+          nextSlot = tomorrowSlots[0];
+        }
+      } else {
+        const idx = todaySlots.indexOf(curSlot);
+        if (idx >= 0 && idx + 1 < todaySlots.length) {
+          nextSlot = todaySlots[idx + 1];
+          // Check if nextSlot itself stitches across midnight
+          if (nextSlot.end >= 1440 && tomorrowSlots.length > 0 && tomorrowSlots[0].type === nextSlot.type) {
+            nextSlot = { start: nextSlot.start, end: 1440 + tomorrowSlots[0].end, type: nextSlot.type };
+          }
+        }
+      }
+
+      const totalSlotMin = Math.max(1, effEnd - effStart);
+      const elapsedMin = Math.max(0, nowMin - effStart);
+      const remainMin = Math.max(0, effEnd - nowMin);
+      const pctDone = Math.min(100, Math.round((elapsedMin / totalSlotMin) * 100));
+
+      const tagEl = document.getElementById('dtHeroTag');
+      const spanEl = document.getElementById('dtHeroSlotSpan');
+      const countEl = document.getElementById('dtHeroCountdown');
+      const nextEl = document.getElementById('dtHeroNextInfo');
+      const barEl = document.getElementById('dtHeroBar');
+
+      spanEl.textContent = `${minToHM(effStart)} — ${minToHM(effEnd)} (${fmtDurMin(totalSlotMin)})`;
+      barEl.style.width = `${pctDone}%`;
+
+      if (isOff) {
+        tagEl.textContent = isEn() ? '🔴 SCHEDULED: BLACKOUT SLOT' : '🔴 ПО ГРАФИКУ: ОТКЛЮЧЕНИЕ';
+        tagEl.style.color = 'var(--red)';
+        countEl.textContent = isEn()
+          ? `POWER RESTORED AT ${minToHM(effEnd)} (in ${fmtDurMin(remainMin)})`
+          : `СВЕТ ДАДУТ В ${minToHM(effEnd)} (через ${fmtDurMin(remainMin)})`;
+        countEl.style.color = 'var(--text)';
+        barEl.style.background = 'var(--red)';
+        if (nextSlot) {
+          const nDur = (nextSlot.end - nextSlot.start);
+          nextEl.textContent = isEn()
+            ? `🟢 Next power window: ${minToHM(nextSlot.start)} — ${minToHM(nextSlot.end)} (${fmtDurMin(nDur)})`
+            : `🟢 Следующее окно со светом: ${minToHM(nextSlot.start)} — ${minToHM(nextSlot.end)} (${fmtDurMin(nDur)})`;
+          nextEl.style.color = 'var(--green)';
+        } else {
+          nextEl.textContent = isEn()
+            ? `Elapsed ${fmtDurMin(elapsedMin)} of ${fmtDurMin(totalSlotMin)} (${pctDone}%)`
+            : `Прошло ${fmtDurMin(elapsedMin)} из ${fmtDurMin(totalSlotMin)} (${pctDone}%)`;
+          nextEl.style.color = 'var(--muted)';
+        }
+      } else {
+        tagEl.textContent = isEn() ? '🟢 SCHEDULED: GRID POWER ON' : '🟢 ПО ГРАФИКУ: СВЕТ ЕСТЬ';
+        tagEl.style.color = 'var(--green)';
+        countEl.textContent = isEn()
+          ? `OUTAGE AT ${minToHM(effEnd)} (${fmtDurMin(remainMin)} left)`
+          : `ОТКЛЮЧЕНИЕ В ${minToHM(effEnd)} (осталось ${fmtDurMin(remainMin)})`;
+        countEl.style.color = 'var(--green)';
+        barEl.style.background = 'var(--green)';
+        if (nextSlot) {
+          const nDur = (nextSlot.end - nextSlot.start);
+          nextEl.textContent = isEn()
+            ? `🔴 Next outage: ${minToHM(nextSlot.start)} — ${minToHM(nextSlot.end)} (${fmtDurMin(nDur)})`
+            : `🔴 Следующее отключение: ${minToHM(nextSlot.start)} — ${minToHM(nextSlot.end)} (${fmtDurMin(nDur)})`;
+          nextEl.style.color = 'var(--amber)';
+        } else {
+          nextEl.textContent = isEn() ? 'Power scheduled until end of day' : 'Свет по графику до конца суток';
+          nextEl.style.color = 'var(--muted)';
+        }
+      }
+
+      // Compare Schedule vs Actual socket_1 state
+      const gridUp = !!(d.smartLife && d.smartLife.gridOnline);
+      const factEl = document.getElementById('dtFactMatch');
+      if (isOff && !gridUp) {
+        factEl.textContent = isEn() ? 'Live (socket_1): grid offline (matches schedule)' : 'Факт (socket_1): света нет (по графику)';
+        factEl.style.color = 'var(--muted)';
+      } else if (!isOff && gridUp) {
+        factEl.textContent = isEn() ? 'Live (socket_1): grid online (matches schedule)' : 'Факт (socket_1): свет есть (по графику)';
+        factEl.style.color = 'var(--green)';
+      } else if (isOff && gridUp) {
+        factEl.textContent = isEn() ? '⚡ LIVE: GRID ONLINE (restored ahead of schedule!)' : '⚡ ФАКТ: СВЕТ ЕСТЬ (включили раньше графика!)';
+        factEl.style.color = 'var(--green)';
+      } else {
+        factEl.textContent = isEn() ? '⚠️ LIVE: GRID OFFLINE (DTEK restoration delayed)' : '⚠️ ФАКТ: СВЕТА НЕТ (задержка включения ДТЕК)';
+        factEl.style.color = 'var(--amber)';
+      }
+    }
+
+    // Render Today & Tomorrow Cards
+    const todayDateStr = todayObj.date ? `${todayObj.date.slice(8,10)}.${todayObj.date.slice(5,7)}` : fmtDateDM(nowMs);
+    document.getElementById('dtTodayTitle').textContent = isEn()
+      ? `TODAY (${todayDateStr}) // HOURLY SCHEDULE`
+      : `СЕГОДНЯ (${todayDateStr}) // ГРАФИК ПО ЧАСАМ`;
+    renderDtekDayBlock(
+      todaySlots,
+      tomorrowSlots,
+      'dtTodaySummary',
+      'dtTodayTrack',
+      'dtTodayList',
+      nowMin
+    );
+
+    const tmrwDateStr = tomorrowObj.date ? `${tomorrowObj.date.slice(8,10)}.${tomorrowObj.date.slice(5,7)}` : (isEn() ? 'TOMORROW' : 'ЗАВТРА');
+    document.getElementById('dtTomorrowTitle').textContent = isEn()
+      ? `TOMORROW (${tmrwDateStr}) // HOURLY SCHEDULE`
+      : `ЗАВТРА (${tmrwDateStr}) // ГРАФИК ПО ЧАСАМ`;
+    renderDtekDayBlock(
+      tomorrowSlots,
+      [],
+      'dtTomorrowSummary',
+      'dtTomorrowTrack',
+      'dtTomorrowList',
+      -1
+    );
+  }
+
+  function renderDtekDayBlock(slots, nextDaySlots, sumId, trackId, listId, nowMin) {
+    const sumEl = document.getElementById(sumId);
+    const trackEl = document.getElementById(trackId);
+    const listEl = document.getElementById(listId);
+    if (!trackEl || !listEl) return;
+
+    trackEl.innerHTML = '';
+    listEl.innerHTML = '';
+
+    if (!slots || slots.length === 0) {
+      sumEl.textContent = isEn() ? 'Awaiting DTEK publication' : 'Ожидание публикации ДТЕК';
+      listEl.innerHTML = `<div style="font-family:var(--mono); font-size:10px; color:var(--muted); padding:6px;">${isEn() ? 'Schedule for this day has not been published by DTEK yet.' : 'График на этот день ещё не опубликован ДТЕК.'}</div>`;
+      return;
+    }
+
+    let onMin = 0, offMin = 0;
+    slots.forEach(s => {
+      const dur = Math.max(0, (s.end || 0) - (s.start || 0));
+      if (s.type === 'Definite') offMin += dur;
+      else onMin += dur;
+
+      const seg = document.createElement('div');
+      seg.style.width = `${(dur / 1440) * 100}%`;
+      seg.style.height = '100%';
+      seg.style.background = s.type === 'Definite' ? 'rgba(242, 73, 92, 0.78)' : 'rgba(115, 191, 105, 0.78)';
+      seg.style.borderRight = '1px solid #0A0C10';
+      trackEl.appendChild(seg);
+    });
+
+    if (nowMin >= 0 && nowMin <= 1440) {
+      const marker = document.createElement('div');
+      marker.className = 'dtek-now-line';
+      marker.style.left = `${(nowMin / 1440) * 100}%`;
+      trackEl.appendChild(marker);
+    }
+
+    sumEl.textContent = isEn()
+      ? `🟢 On: ${fmtDurMin(onMin)} • 🔴 Off: ${fmtDurMin(offMin)}`
+      : `🟢 Свет: ${fmtDurMin(onMin)} • 🔴 Откл: ${fmtDurMin(offMin)}`;
+
+    slots.forEach((s, idx) => {
+      const isOff = s.type === 'Definite';
+      const isNow = nowMin >= s.start && nowMin < s.end;
+      const dur = Math.max(0, s.end - s.start);
+
+      let extraNote = '';
+      if (idx === slots.length - 1 && s.end >= 1440 && nextDaySlots && nextDaySlots.length > 0 && nextDaySlots[0].type === s.type) {
+        const stitchedDur = dur + nextDaySlots[0].end;
+        extraNote = isEn()
+          ? ` <span style="color:var(--amber);">→ continues until ${minToHM(nextDaySlots[0].end)} (total ${fmtDurMin(stitchedDur)})</span>`
+          : ` <span style="color:var(--amber);">→ до ${minToHM(nextDaySlots[0].end)} ночи (всего ${fmtDurMin(stitchedDur)})</span>`;
+      }
+
+      const row = document.createElement('div');
+      row.className = 'dtek-slot ' + (isOff ? 'slot-off' : 'slot-on') + (isNow ? ' slot-now' : '');
+      row.innerHTML = `
+        <div>
+          <div style="font-weight:700; color:${isOff ? 'var(--red)' : 'var(--green)'};">
+            ${isOff ? (isEn() ? '🔴 OUTAGE' : '🔴 ОТКЛЮЧЕНИЕ') : (isEn() ? '🟢 POWER ON' : '🟢 СВЕТ ЕСТЬ')}
+            ${isNow ? `<span style="background:var(--cyan); color:#000; padding:1px 5px; font-size:9px; margin-left:6px; border-radius:2px;">${isEn() ? 'NOW' : 'СЕЙЧАС'}</span>` : ''}
+          </div>
+          <div style="color:var(--text); margin-top:2px;">
+            <b>${minToHM(s.start)} — ${minToHM(s.end)}</b>${extraNote}
+          </div>
+        </div>
+        <div style="font-weight:700; font-size:12px; color:${isOff ? 'var(--red)' : 'var(--green)'}; text-align:right;">
+          ${fmtDurMin(dur)}
+        </div>
+      `;
+      listEl.appendChild(row);
+    });
+  }
+
+  // =========================================================================
+  // GRAFANA PERIOD ANALYTICS & MINUTE-EXACT TIMELINE
+  // =========================================================================
+
+  function getPeriodWindow(nowMs) {
+    const dt = new Date(nowMs);
+    if (selectedPeriod === 'DAY') {
+      const start = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime();
+      return {
+        startMs: start,
+        endMs: nowMs,
+        label: isEn()
+          ? `TODAY (${fmtDateDM(nowMs)} 00:00 — ${fmtTimeHM(nowMs)})`
+          : `СЕГОДНЯ (${fmtDateDM(nowMs)} 00:00 — ${fmtTimeHM(nowMs)})`
+      };
+    }
+    if (selectedPeriod === '24H') {
+      return { startMs: nowMs - 24 * 3600_000, endMs: nowMs, label: isEn() ? 'LAST 24 HOURS' : 'ПОСЛЕДНИЕ 24 ЧАСА' };
+    }
+    if (selectedPeriod === '7D') {
+      return { startMs: nowMs - 7 * 86400_000, endMs: nowMs, label: isEn() ? 'LAST 7 DAYS' : 'ПОСЛЕДНИЕ 7 ДНЕЙ' };
+    }
+    if (selectedPeriod === '30D') {
+      return { startMs: nowMs - 30 * 86400_000, endMs: nowMs, label: isEn() ? 'LAST 30 DAYS' : 'ПОСЛЕДНИЕ 30 ДНЕЙ' };
+    }
+    // CUSTOM
+    initDates();
+    const fVal = document.getElementById('inpDateFrom').value;
+    const tVal = document.getElementById('inpDateTo').value;
+    const sDate = fVal ? new Date(fVal + 'T00:00:00') : new Date(nowMs - 86400_000);
+    const eDate = tVal ? new Date(tVal + 'T23:59:59') : new Date(nowMs);
+    const sMs = sDate.getTime();
+    const eMs = Math.min(nowMs, eDate.getTime());
+    return {
+      startMs: Math.min(sMs, eMs),
+      endMs: Math.max(sMs, eMs),
+      label: isEn() ? `RANGE: ${fVal} — ${tVal}` : `ПЕРИОД: ${fVal} — ${tVal}`
+    };
+  }
+
+  function renderGrafanaPanels(d) {
+    if (!d) return;
+    const nowMs = d.timestamp || Date.now();
+    const win = getPeriodWindow(nowMs);
+    document.getElementById('periodRangeLabel').textContent = win.label;
+
+    const hist = d.history || {};
+    const rawIntervals = hist.intervals || [];
+    const rawCurve = hist.curve || [];
+
+    // Filter & clip intervals to [win.startMs, win.endMs]
+    let gridMs = 0, genMs = 0, battMs = 0, zeroMs = 0;
+    const clipped = [];
+
+    rawIntervals.forEach(iv => {
+      const s = Math.max(win.startMs, iv.startMs || 0);
+      const e = Math.min(win.endMs, iv.endMs || nowMs);
+      if (e > s) {
+        const dur = e - s;
+        const m = iv.mode || 'BATTERY';
+        if (m === 'GRID') gridMs += dur;
+        else if (m === 'GENERATOR') genMs += dur;
+        else if (m === 'BLACKOUT_ZERO') zeroMs += dur;
+        else battMs += dur;
+
+        clipped.push({
+          mode: m,
+          startMs: s,
+          endMs: e,
+          durMs: dur,
+          startSoc: iv.startSoc ?? 0,
+          endSoc: iv.endSoc ?? 0,
+          avgInW: iv.avgInW ?? 0,
+          avgOutW: iv.avgOutW ?? 0
+        });
+      }
+    });
+
+    const totalTrackedMs = Math.max(1, gridMs + genMs + battMs + zeroMs);
+    const pct = ms => Math.round((ms / totalTrackedMs) * 100);
+
+    document.getElementById('sumGridTime').textContent = fmtMinExact(gridMs);
+    document.getElementById('sumGridPct').textContent  = isEn()
+      ? `${pct(gridMs)}% of tracked time`
+      : `${pct(gridMs)}% учтённого времени`;
+
+    document.getElementById('sumGenTime').textContent  = fmtMinExact(genMs);
+    const cfgG = getGenConfig(d);
+    let exactGenLiters = 0;
+    clipped.forEach(iv => {
+      if (iv.mode === 'GENERATOR') {
+        exactGenLiters += calcIntervalFuelLiters(iv.durMs, iv.avgInW || iv.avgOutW, cfgG);
+      }
+    });
+    document.getElementById('sumGenPct').textContent   = isEn()
+      ? `${pct(genMs)}% • ~${exactGenLiters.toFixed(2)} L gasoline`
+      : `${pct(genMs)}% • ~${exactGenLiters.toFixed(2)} л бензина`;
+
+    document.getElementById('sumBattTime').textContent = fmtMinExact(battMs);
+    document.getElementById('sumBattPct').textContent  = isEn()
+      ? `${pct(battMs)}% (Station battery)`
+      : `${pct(battMs)}% (Автономно на станции)`;
+
+    document.getElementById('sumZeroTime').textContent = fmtMinExact(zeroMs);
+    document.getElementById('sumZeroPct').textContent  = isEn()
+      ? `${pct(zeroMs)}% (Total 0% / Offline)`
+      : `${pct(zeroMs)}% (Полный 0 / Оффлайн)`;
+
+    // Draw Gantt / State Timeline Canvas
+    drawStateTimelineCanvas('cvStateTimeline', clipped, win.startMs, win.endMs);
+
+    // Render Daily Breakdown Bars if multi-day period
+    renderDailyBreakdown('dailyBreakdownBox', clipped, selectedPeriod !== 'DAY' && selectedPeriod !== '24H');
+
+    // Render Minute-by-Minute Interval Log (Newest first)
+    renderIntervalLog('intervalLogList', clipped);
+
+    // Filter telemetry points to period (or fallback to all points if today)
+    let pts = rawCurve.filter(p => !p.ts || (p.ts >= win.startMs && p.ts <= win.endMs));
+    if (pts.length === 0) {
+      pts = [{
+        t: fmtTimeHM(nowMs),
+        ts: nowMs,
+        batt: (d.oukitel && d.oukitel.batteryPct) || 0,
+        inW: (d.oukitel && d.oukitel.totalInputW) || 0,
+        acInW: (d.oukitel && d.oukitel.acInputW) || 0,
+        outW: (d.oukitel && d.oukitel.totalOutputW) || 0
+      }];
+    }
+    document.getElementById('gfSamplesCount').textContent = isEn()
+      ? `${pts.length} pts`
+      : `${pts.length} точек`;
+
+    const wUnit = isEn() ? 'W' : 'Вт';
+    drawGrafanaChart(
+      'cvPower',
+      'lgPower',
+      pts,
+      [
+        { key: 'inW',   name: isEn() ? 'Total Input (Grid / Gen)' : 'Вход всего (Сеть / Гена)', unit: wUnit, color: '#73BF69' },
+        { key: 'acInW', name: isEn() ? 'Battery Charge'           : 'Заряд в батарею',          unit: wUnit, color: '#5794F2' },
+        { key: 'outW',  name: isEn() ? 'Home Load (Output)'       : 'Нагрузка дома (Выход)',    unit: wUnit, color: '#FF9830' }
+      ],
+      0,
+      1800
+    );
+
+    drawGrafanaChart(
+      'cvSoc',
+      'lgSoc',
+      pts,
+      [
+        { key: 'batt', name: isEn() ? 'Oukitel Battery SoC' : 'Заряд батареи Oukitel', unit: '%', color: '#33B5E5' }
+      ],
+      0,
+      100
+    );
+  }
+
+  function drawStateTimelineCanvas(canvasId, clipped, startMs, endMs) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 2;
+    const W = Math.max(300, rect.width);
+    const H = Math.max(50, rect.height);
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const padL = 8, padR = 8, padT = 6, padB = 18;
+    const barW = W - padL - padR;
+    const barH = H - padT - padB;
+
+    // Background track
+    ctx.fillStyle = '#181B20';
+    ctx.fillRect(padL, padT, barW, barH);
+
+    // Effective span: if clipped exists, span from earliest recorded in window to endMs so bar is rich & readable
+    const effectiveStart = clipped.length > 0 ? Math.min(startMs, clipped[0].startMs) : startMs;
+    const spanStart = clipped.length > 0 && selectedPeriod === 'DAY' ? clipped[0].startMs : effectiveStart;
+    const span = Math.max(60_000, endMs - spanStart);
+
+    const colors = {
+      'GRID': '#73BF69',
+      'GENERATOR': '#FF9830',
+      'BATTERY': '#F2495C',
+      'BLACKOUT_ZERO': '#6E737B'
+    };
+
+    clipped.forEach(iv => {
+      const x1 = padL + Math.max(0, ((iv.startMs - spanStart) / span) * barW);
+      const x2 = padL + Math.min(barW, ((iv.endMs - spanStart) / span) * barW);
+      const w = Math.max(2, x2 - x1);
+      ctx.fillStyle = colors[iv.mode] || '#F2495C';
+      ctx.fillRect(x1, padT, w, barH);
+    });
+
+    // Time Axis Ticks
+    ctx.fillStyle = '#8E9297';
+    ctx.font = '9px monospace';
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const tMs = spanStart + (span / ticks) * i;
+      const x = padL + (barW / ticks) * i;
+      ctx.textAlign = i === 0 ? 'left' : (i === ticks ? 'right' : 'center');
+      const lbl = (endMs - spanStart) > 90000_000 ? `${fmtDateDM(tMs)} ${fmtTimeHM(tMs)}` : fmtTimeHM(tMs);
+      ctx.fillText(lbl, x, H - 4);
+    }
+  }
+
+  function renderDailyBreakdown(containerId, clipped, show) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    box.innerHTML = '';
+    if (!show || clipped.length === 0) return;
+
+    // Group by DD.MM
+    const daysMap = {};
+    clipped.forEach(iv => {
+      const dayKey = fmtDateDM(iv.startMs);
+      if (!daysMap[dayKey]) daysMap[dayKey] = { grid: 0, gen: 0, batt: 0, zero: 0 };
+      if (iv.mode === 'GRID') daysMap[dayKey].grid += iv.durMs;
+      else if (iv.mode === 'GENERATOR') daysMap[dayKey].gen += iv.durMs;
+      else if (iv.mode === 'BLACKOUT_ZERO') daysMap[dayKey].zero += iv.durMs;
+      else daysMap[dayKey].batt += iv.durMs;
+    });
+
+    Object.keys(daysMap).forEach(day => {
+      const d = daysMap[day];
+      const tot = Math.max(1, d.grid + d.gen + d.batt + d.zero);
+      const row = document.createElement('div');
+      row.className = 'd-row';
+      row.innerHTML = `
+        <span style="color:var(--muted);">${day}</span>
+        <div class="d-track">
+          <div style="width:${(d.grid/tot)*100}%; background:var(--green);"></div>
+          <div style="width:${(d.gen/tot)*100}%; background:var(--amber);"></div>
+          <div style="width:${(d.batt/tot)*100}%; background:var(--red);"></div>
+          <div style="width:${(d.zero/tot)*100}%; background:var(--zero);"></div>
+        </div>
+        <span style="text-align:right; color:var(--text);">${isEn() ? 'Grid' : 'Свет'} ${fmtMinExact(d.grid)} / ${isEn() ? 'Gen' : 'Гена'} ${fmtMinExact(d.gen)}</span>
+      `;
+      box.appendChild(row);
+    });
+  }
+
+  function renderIntervalLog(listId, clipped) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    list.innerHTML = '';
+    document.getElementById('intervalsCountLabel').textContent = isEn()
+      ? `${clipped.length} intervals`
+      : `${clipped.length} интервалов`;
+
+    const names = isEn() ? {
+      'GRID': 'DTEK CITY GRID',
+      'GENERATOR': 'RATO GENERATOR',
+      'BATTERY': 'BATTERY BACKUP (BLACKOUT)',
+      'BLACKOUT_ZERO': 'TOTAL 0% / OFFLINE'
+    } : {
+      'GRID': 'ОТ СЕТИ ДТЕК',
+      'GENERATOR': 'ОТ ГЕНЕРАТОРА RATO',
+      'BATTERY': 'НА СТАНЦИИ (БЕЗ СЕТИ И ГЕНЫ)',
+      'BLACKOUT_ZERO': 'ВСЕ СЕЛО В 0% / ОФФЛАЙН'
+    };
+
+    const reversed = [...clipped].reverse();
+    reversed.forEach(iv => {
+      const row = document.createElement('div');
+      row.className = `log-row mode-${iv.mode}`;
+      const sameDay = fmtDateDM(iv.startMs) === fmtDateDM(iv.endMs);
+      const timeRange = sameDay
+        ? `${fmtDateDM(iv.startMs)} ${fmtTimeHM(iv.startMs)} — ${fmtTimeHM(iv.endMs)}`
+        : `${fmtDateDM(iv.startMs)} ${fmtTimeHM(iv.startMs)} — ${fmtDateDM(iv.endMs)} ${fmtTimeHM(iv.endMs)}`;
+
+      const socInfo = (iv.startSoc || iv.endSoc)
+        ? (isEn() ? `SoC: ${iv.startSoc}% → ${iv.endSoc}%` : `Заряд: ${iv.startSoc}% → ${iv.endSoc}%`)
+        : '';
+      const wInfo = iv.avgInW > 50
+        ? (isEn() ? ` • In ~${iv.avgInW}W` : ` • Вход ~${iv.avgInW}Вт`)
+        : (iv.avgOutW > 0 ? (isEn() ? ` • Load ~${iv.avgOutW}W` : ` • Дом ~${iv.avgOutW}Вт`) : '');
+
+      row.innerHTML = `
+        <div>
+          <div style="font-weight:700; color:var(--text);">${names[iv.mode] || iv.mode}</div>
+          <div style="color:var(--muted); margin-top:1px;">${timeRange} • ${socInfo}${wInfo}</div>
+        </div>
+        <div style="font-weight:700; font-size:11px; text-align:right; padding-left:8px;">
+          ${fmtMinExact(iv.durMs)}
+        </div>
+      `;
+      list.appendChild(row);
+    });
+  }
+
+  function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxYDefault) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 2;
+    const W = Math.max(300, rect.width);
+    const H = Math.max(125, rect.height);
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, W, H);
+
+    const padL = 36, padR = 10, padT = 10, padB = 20;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    let maxVal = maxYDefault;
+    pts.forEach(p => {
+      seriesList.forEach(s => {
+        const v = Number(p[s.key] || 0);
+        if (v > maxVal) maxVal = Math.ceil(v / 100) * 100;
+      });
+    });
+    const minVal = minYDefault;
+
+    ctx.strokeStyle = '#1B1E26';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#6E737B';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+
+    const steps = 4;
+    for (let i = 0; i <= steps; i++) {
+      const y = padT + (plotH / steps) * i;
+      const val = Math.round(maxVal - ((maxVal - minVal) / steps) * i);
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + plotW, y);
+      ctx.stroke();
+      ctx.fillText(String(val), padL - 5, y + 3);
+    }
+
+    const vSteps = Math.min(4, Math.max(1, pts.length - 1));
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= vSteps; i++) {
+      const idx = Math.min(pts.length - 1, Math.round((i / vSteps) * (pts.length - 1)));
+      const x = padL + (pts.length > 1 ? (idx / (pts.length - 1)) * plotW : plotW / 2);
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + plotH);
+      ctx.stroke();
+      const lbl = (pts[idx] && pts[idx].t) ? pts[idx].t.slice(0, 5) : '';
+      ctx.fillText(lbl, x, H - 5);
+    }
+
+    const tbody = document.getElementById(legendId);
+    if (tbody) tbody.innerHTML = '';
+
+    seriesList.forEach(s => {
+      const vals = pts.map(p => Number(p[s.key] ?? 0));
+      const last = vals[vals.length - 1] ?? 0;
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const mean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+
+      const coords = vals.map((v, idx) => {
+        const x = padL + (vals.length > 1 ? (idx / (vals.length - 1)) * plotW : plotW);
+        const norm = (v - minVal) / Math.max(1, (maxVal - minVal));
+        const y = padT + plotH - Math.max(0, Math.min(1, norm)) * plotH;
+        return { x, y };
+      });
+
+      if (coords.length === 1) {
+        coords.unshift({ x: padL, y: coords[0].y });
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(coords[0].x, padT + plotH);
+      coords.forEach(c => ctx.lineTo(c.x, c.y));
+      ctx.lineTo(coords[coords.length - 1].x, padT + plotH);
+      ctx.closePath();
+      ctx.fillStyle = s.color + '1F';
+      ctx.fill();
+
+      ctx.beginPath();
+      coords.forEach((c, idx) => {
+        if (idx === 0) ctx.moveTo(c.x, c.y);
+        else ctx.lineTo(c.x, c.y);
+      });
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      if (tbody) {
+        const fmt = v => Math.round(v) + ' ' + s.unit;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><span class="lg-line" style="background:${s.color};"></span>${s.name}</td>
+          <td style="font-weight:700;">${fmt(last)}</td>
+          <td>${fmt(min)}</td>
+          <td>${fmt(max)}</td>
+          <td>${fmt(mean)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    });
+  }
+
+  // Initial Load + Active 3s Pull & Poll Loop
+  function pullNativeState() {
+    if (!window.IskraNative) return;
+    try {
+      const json = window.IskraNative.getStateJson();
+      if (json) window.onIskraState(json);
+    } catch (e) {}
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    initDates();
+    if (LANG === 'en') setLang('en');
+    pullNativeState();
+    if (window.IskraNative && window.IskraNative.silentPoll) {
+      window.IskraNative.silentPoll();
+    }
+    setInterval(() => {
+      pullNativeState();
+      if (!document.hidden && window.IskraNative) {
+        if (window.IskraNative.silentPoll) window.IskraNative.silentPoll();
+        else window.IskraNative.forceRefresh();
+      }
+    }, 3000);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      pullNativeState();
+      if (window.IskraNative && window.IskraNative.silentPoll) {
+        window.IskraNative.silentPoll();
+      }
+    }
+  });
+</script>
+</body>
+</html>

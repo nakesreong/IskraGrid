@@ -1,0 +1,33 @@
+# Local secrets & credentials (never commit)
+android/app/src/main/assets/secrets.json
+android/local.properties
+*.secrets.properties
+*.keystore
+*.jks
+
+# Local scratch scripts & token dumps
+/*.py
+/*.json
+/__pycache__/
+/NOTES.md
+/OFFLINE_LAN_RESEARCH.md
+
+# Android / Gradle build artifacts
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+local.properties
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
