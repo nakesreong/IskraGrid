@@ -150,16 +150,38 @@ function buildUnifiedCurvePoints(clipped, rawCurve, spanStart, endMs, d) {
       mode: m
     });
 
-    if (!hasNearRaw(s, 90_000)) {
-      synth.push(makePt(s + 1000, 0));
-    }
-    for (let tMs = s + stepMs; tMs < e - stepMs / 2; tMs += stepMs) {
-      if (!hasNearRaw(tMs, tolMs)) {
-        synth.push(makePt(tMs, (tMs - s) / dur));
+    if (m === 'GENERATOR') {
+      // Crisp vertical step-up from 0 L/h right before Rato starts, and step-down right after Rato stops
+      if (!hasNearRaw(s, 45_000)) {
+        if (s > spanStart + 2000) {
+          synth.push({ t: fmtTimeHM(s - 1000), ts: s - 1000, batt: sSoc, inW: 0, acInW: 0, outW: outW, mode: 'BATTERY' });
+        }
+        synth.push(makePt(s + 1000, 0));
       }
-    }
-    if (!hasNearRaw(e, 90_000)) {
-      synth.push(makePt(Math.max(s + 2000, e - 1000), 1));
+      const genStepMs = Math.min(stepMs, 600_000);
+      for (let tMs = s + genStepMs; tMs < e - genStepMs / 2; tMs += genStepMs) {
+        if (!hasNearRaw(tMs, Math.min(tolMs, 300_000))) {
+          synth.push(makePt(tMs, (tMs - s) / dur));
+        }
+      }
+      if (!hasNearRaw(e, 45_000)) {
+        synth.push(makePt(Math.max(s + 2000, e - 1000), 1));
+        if (e < endMs - 2000) {
+          synth.push({ t: fmtTimeHM(e + 1000), ts: e + 1000, batt: eSoc, inW: 0, acInW: 0, outW: outW, mode: 'BATTERY' });
+        }
+      }
+    } else {
+      if (!hasNearRaw(s, 90_000)) {
+        synth.push(makePt(s + 1000, 0));
+      }
+      for (let tMs = s + stepMs; tMs < e - stepMs / 2; tMs += stepMs) {
+        if (!hasNearRaw(tMs, tolMs)) {
+          synth.push(makePt(tMs, (tMs - s) / dur));
+        }
+      }
+      if (!hasNearRaw(e, 90_000)) {
+        synth.push(makePt(Math.max(s + 2000, e - 1000), 1));
+      }
     }
   });
 
@@ -320,9 +342,10 @@ function renderGrafanaPanels(d) {
 function renderFuelAnalyticsPanel(d, cfg, rawIntervals, pts, win, spanStart, spanEnd, periodGenMs, periodGenL, periodGenRuns, periodGenWeightedW) {
   const fMeta = document.getElementById('genFuelFormulaMeta');
   if (fMeta) {
+    fMeta.style.whiteSpace = 'nowrap';
     fMeta.textContent = isEn()
-      ? `Idle ${cfg.idleLh.toFixed(2)} L/h • ½ ${cfg.fuelHalfLh.toFixed(2)} L/h • Max ${cfg.fuelFullLh.toFixed(2)} L/h`
-      : `Холостой ${cfg.idleLh.toFixed(2)} л/ч • ½ ${cfg.fuelHalfLh.toFixed(2)} л/ч • Макс ${cfg.fuelFullLh.toFixed(2)} л/ч`;
+      ? `${cfg.idleLh.toFixed(2)} / ${cfg.fuelHalfLh.toFixed(2)} / ${cfg.fuelFullLh.toFixed(2)} L/h`
+      : `0%: ${cfg.idleLh.toFixed(2)} • ½: ${cfg.fuelHalfLh.toFixed(2)} • Макс: ${cfg.fuelFullLh.toFixed(2)} л/ч`;
   }
 
   const nowMs = d.timestamp || Date.now();
@@ -457,15 +480,21 @@ function renderFuelAnalyticsPanel(d, cfg, rawIntervals, pts, win, spanStart, spa
       : `С ${tDate} • в баке ~${remTankL.toFixed(1)} из ${cfg.tankL} л`;
   }
 
-  // Draw Fuel Chart (#cvFuel) for the selected period [spanStart, spanEnd]
-  const maxFuelY = Math.max(2.5, Math.ceil(Math.max(periodGenL, cfg.fuelFullLh) * 2) / 2);
+  // Draw Fuel Burn Rate Chart (#cvFuel) — strictly L/h oscillation (0 when off, load-dependent L/h when running)
+  const maxFuelY = Math.max(2.0, Math.ceil(cfg.fuelFullLh * 2) / 2);
   drawGrafanaChart(
     'cvFuel',
     'lgFuel',
     pts,
     [
-      { key: 'fuelRateLh', name: isEn() ? 'Instant Burn Rate'      : 'Текущий расход (л/ч)',  unit: lhUnit, color: '#FF9830', decimals: 2 },
-      { key: 'fuelCumL',   name: isEn() ? 'Burned in Period (Cum)' : 'Сожжено за период (л)', unit: lUnit,  color: '#FADE2A', decimals: 2 }
+      {
+        key: 'fuelRateLh',
+        name: isEn() ? 'Fuel Burn Rate (L/h)' : 'Расход в час (л/ч)',
+        unit: lhUnit,
+        color: '#FF9830',
+        decimals: 2,
+        activeOnlyStats: true
+      }
     ],
     0,
     maxFuelY,
@@ -720,9 +749,10 @@ function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxY
   seriesList.forEach(s => {
     const vals = pts.map(p => Number(p[s.key] ?? 0));
     const last = vals[vals.length - 1] ?? 0;
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const mean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+    const statVals = s.activeOnlyStats ? vals.filter(v => v > 0.01) : vals;
+    const min = statVals.length > 0 ? Math.min(...statVals) : 0;
+    const max = statVals.length > 0 ? Math.max(...statVals) : 0;
+    const mean = statVals.length > 0 ? (statVals.reduce((a, b) => a + b, 0) / statVals.length) : 0;
 
     const coords = pts.map((p, idx) => {
       const v = vals[idx];
