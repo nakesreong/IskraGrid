@@ -176,33 +176,46 @@ class IskraEngine private constructor(context: Context) {
     private fun healGlitchIntervals() {
         try {
             val raw = JSONArray(prefs.getString("power_intervals_v3", "[]"))
-            val merged = JSONArray()
-            var i = 0
-            while (i < raw.length()) {
+            // Pass 1: Filter out pre-Shelly noise and micro-glitches (< 45s) unless it is the very last active interval
+            val cleaned = mutableListOf<JSONObject>()
+            for (i in 0 until raw.length()) {
                 val cur = raw.getJSONObject(i)
-                val endMs = cur.optLong("endMs", 0L)
-                if (endMs <= 1794235700000L) {
-                    i++
+                val s = cur.optLong("startMs", 0L)
+                val e = cur.optLong("endMs", 0L)
+                if (e <= 1794235670000L) continue
+                val dur = e - s
+                if (dur < 45_000L && i < raw.length() - 1) {
                     continue
                 }
-                if (i + 2 < raw.length()) {
-                    val mid = raw.getJSONObject(i + 1)
-                    val nxt = raw.getJSONObject(i + 2)
-                    val midDur = mid.optLong("endMs") - mid.optLong("startMs")
-                    if (cur.optString("mode") == nxt.optString("mode") && midDur in 0..30_000L) {
-                        cur.put("endMs", nxt.optLong("endMs"))
-                        cur.put("endSoc", nxt.optInt("endSoc"))
-                        merged.put(cur)
-                        if (i + 2 == raw.length() - 1) {
-                            modeStartMs = cur.optLong("startMs")
-                            prefs.edit().putLong("mode_start_ms", modeStartMs).apply()
-                        }
-                        i += 3
+                cleaned.add(cur)
+            }
+
+            // Pass 2: Merge adjacent intervals with the exact same mode (and stitch across any remaining tiny gaps)
+            val merged = JSONArray()
+            for (cur in cleaned) {
+                if (merged.length() > 0) {
+                    val prev = merged.getJSONObject(merged.length() - 1)
+                    if (prev.optString("mode") == cur.optString("mode")) {
+                        val prevDur = max(1L, prev.optLong("endMs") - prev.optLong("startMs"))
+                        val curDur = max(1L, cur.optLong("endMs") - cur.optLong("startMs"))
+                        val totDur = prevDur + curDur
+                        val wIn = ((prev.optInt("avgInW") * prevDur + cur.optInt("avgInW") * curDur) / totDur).toInt()
+                        val wOut = ((prev.optInt("avgOutW") * prevDur + cur.optInt("avgOutW") * curDur) / totDur).toInt()
+                        prev.put("endMs", max(prev.optLong("endMs"), cur.optLong("endMs")))
+                        prev.put("endSoc", cur.optInt("endSoc", prev.optInt("endSoc")))
+                        if (wIn > 0) prev.put("avgInW", wIn)
+                        if (wOut > 0) prev.put("avgOutW", wOut)
                         continue
+                    } else if (cur.optLong("startMs") - prev.optLong("endMs") in 1..180_000L) {
+                        prev.put("endMs", cur.optLong("startMs"))
                     }
                 }
                 merged.put(cur)
-                i++
+            }
+            if (merged.length() > 0) {
+                val last = merged.getJSONObject(merged.length() - 1)
+                modeStartMs = last.optLong("startMs", modeStartMs)
+                prefs.edit().putLong("mode_start_ms", modeStartMs).apply()
             }
             prefs.edit().putString("power_intervals_v3", merged.toString()).apply()
         } catch (_: Exception) {}
@@ -463,6 +476,51 @@ class IskraEngine private constructor(context: Context) {
         }
     }
 
+    private fun appendOrExtendInterval(
+        arr: JSONArray,
+        mode: String,
+        startMs: Long,
+        endMs: Long,
+        startSoc: Int,
+        endSoc: Int,
+        inW: Int,
+        outW: Int
+    ) {
+        if (arr.length() > 0) {
+            val last = arr.getJSONObject(arr.length() - 1)
+            val lastMode = last.optString("mode")
+            if (lastMode == mode) {
+                val prevDur = max(1L, last.optLong("endMs") - last.optLong("startMs"))
+                val addDur = max(1L, endMs - last.optLong("endMs"))
+                val totDur = prevDur + addDur
+                last.put("endMs", max(last.optLong("endMs"), endMs))
+                if (endSoc > 0 || mode == "BLACKOUT_ZERO") {
+                    last.put("endSoc", endSoc)
+                }
+                if (inW > 0) {
+                    val prevIn = last.optInt("avgInW", inW)
+                    last.put("avgInW", ((prevIn * prevDur + inW * addDur) / totDur).toInt())
+                }
+                if (outW > 0) {
+                    val prevOut = last.optInt("avgOutW", outW)
+                    last.put("avgOutW", ((prevOut * prevDur + outW * addDur) / totDur).toInt())
+                }
+                return
+            } else if (startMs - last.optLong("endMs", startMs) in 1..300_000L) {
+                last.put("endMs", startMs)
+            }
+        }
+        arr.put(JSONObject().apply {
+            put("mode", mode)
+            put("startMs", startMs)
+            put("endMs", endMs)
+            put("startSoc", startSoc)
+            put("endSoc", endSoc)
+            put("avgInW", inW)
+            put("avgOutW", outW)
+        })
+    }
+
     private fun reconcileLongGap(fromMs: Long, toMs: Long, resumedMode: String) {
         try {
             val arr = JSONArray(prefs.getString("power_intervals_v3", "[]"))
@@ -472,37 +530,24 @@ class IskraEngine private constructor(context: Context) {
                 val genStartMs = max(fromMs, toMs - shelly.state.uptimeSec * 1000L)
                 if (genStartMs > fromMs + 60_000L) {
                     val offlineMode = if (lastSoc <= 5) "BLACKOUT_ZERO" else "BATTERY"
-                    arr.put(JSONObject().apply {
-                        put("mode", offlineMode)
-                        put("startMs", fromMs)
-                        put("endMs", genStartMs)
-                        put("startSoc", lastSoc)
-                        put("endSoc", if (offlineMode == "BLACKOUT_ZERO") 0 else lastSoc)
-                        put("avgInW", 0)
-                        put("avgOutW", if (offlineMode == "BLACKOUT_ZERO") 0 else 400)
-                    })
+                    appendOrExtendInterval(
+                        arr, offlineMode, fromMs, genStartMs,
+                        lastSoc, if (offlineMode == "BLACKOUT_ZERO") 0 else lastSoc,
+                        0, if (offlineMode == "BLACKOUT_ZERO") 0 else 400
+                    )
                 }
-                arr.put(JSONObject().apply {
-                    put("mode", "GENERATOR")
-                    put("startMs", genStartMs)
-                    put("endMs", toMs)
-                    put("startSoc", lastSoc)
-                    put("endSoc", oukitel.state.batteryPct)
-                    put("avgInW", oukitel.state.totalInputW)
-                    put("avgOutW", oukitel.state.totalOutputW)
-                })
+                appendOrExtendInterval(
+                    arr, "GENERATOR", genStartMs, toMs,
+                    lastSoc, oukitel.state.batteryPct,
+                    oukitel.state.totalInputW, oukitel.state.totalOutputW
+                )
             } else {
-                // Gap while everything was unpowered / offline
                 val gapMode = if (lastSoc <= 5 || resumedMode == "BLACKOUT_ZERO") "BLACKOUT_ZERO" else currentMode
-                arr.put(JSONObject().apply {
-                    put("mode", gapMode)
-                    put("startMs", fromMs)
-                    put("endMs", toMs)
-                    put("startSoc", lastSoc)
-                    put("endSoc", oukitel.state.batteryPct)
-                    put("avgInW", 0)
-                    put("avgOutW", 0)
-                })
+                appendOrExtendInterval(
+                    arr, gapMode, fromMs, toMs,
+                    lastSoc, oukitel.state.batteryPct,
+                    oukitel.state.totalInputW, oukitel.state.totalOutputW
+                )
             }
             prefs.edit().putString("power_intervals_v3", arr.toString()).apply()
         } catch (_: Exception) {}
@@ -515,36 +560,7 @@ class IskraEngine private constructor(context: Context) {
             val inW = oukitel.state.totalInputW
             val outW = oukitel.state.totalOutputW
 
-            if (arr.length() > 0) {
-                val last = arr.getJSONObject(arr.length() - 1)
-                val lastMode = last.optString("mode")
-                val lastEnd = last.optLong("endMs", nowMs)
-                // If same mode and continuous within 5 minutes, extend interval
-                if (lastMode == mode && (nowMs - lastEnd) <= 300_000L) {
-                    last.put("endMs", nowMs)
-                    if (soc > 0 || mode == "BLACKOUT_ZERO") {
-                        last.put("endSoc", soc)
-                    }
-                    if (inW > 0) last.put("avgInW", inW)
-                    if (outW > 0) last.put("avgOutW", outW)
-                    prefs.edit().putString("power_intervals_v3", arr.toString()).apply()
-                    return
-                } else if ((nowMs - lastEnd) <= 300_000L) {
-                    // Close previous interval cleanly at nowMs
-                    last.put("endMs", nowMs)
-                }
-            }
-
-            // Start new interval
-            arr.put(JSONObject().apply {
-                put("mode", mode)
-                put("startMs", nowMs)
-                put("endMs", nowMs)
-                put("startSoc", soc)
-                put("endSoc", soc)
-                put("avgInW", inW)
-                put("avgOutW", outW)
-            })
+            appendOrExtendInterval(arr, mode, nowMs, nowMs, soc, soc, inW, outW)
 
             // Keep up to 1500 intervals (~months of minute-exact transitions)
             val trimmed = if (arr.length() > 1500) {
@@ -560,7 +576,7 @@ class IskraEngine private constructor(context: Context) {
     }
 
     private fun recordTelemetrySample(nowMs: Long, mode: String) {
-        if (nowMs - lastSampleMs < 10_000L) return
+        if (nowMs - lastSampleMs < 20_000L) return
         lastSampleMs = nowMs
 
         try {
@@ -580,8 +596,8 @@ class IskraEngine private constructor(context: Context) {
                 put("mode", mode)
             }
             val nextArr = JSONArray()
-            // Keep up to 1200 points for multi-hour / daily charting
-            val startIdx = max(0, curveArr.length() - 1199)
+            // Keep up to 4500 points (~25+ hours at 20s resolution)
+            val startIdx = max(0, curveArr.length() - 4499)
             for (i in startIdx until curveArr.length()) {
                 nextArr.put(curveArr.getJSONObject(i))
             }

@@ -923,11 +923,11 @@
       <div class="panel">
         <div class="panel-hdr">
           <span class="panel-title">ВЫБОР ПЕРИОДА АНАЛИТИКИ</span>
-          <span class="panel-meta" id="periodRangeLabel">СЕГОДНЯ (00:00 — СЕЙЧАС)</span>
+          <span class="panel-meta" id="periodRangeLabel">ПОСЛЕДНИЕ 12 ЧАСОВ</span>
         </div>
         <div class="period-bar">
-          <button class="step-btn active" id="pBtnDay" onclick="setPeriod('DAY')">ДЕНЬ</button>
-          <button class="step-btn" id="pBtn24h" onclick="setPeriod('24H')">СУТКИ 24Ч</button>
+          <button class="step-btn active" id="pBtn12h" onclick="setPeriod('12H')">12Ч</button>
+          <button class="step-btn" id="pBtn24h" onclick="setPeriod('24H')">24Ч</button>
           <button class="step-btn" id="pBtn7d" onclick="setPeriod('7D')">НЕДЕЛЯ</button>
           <button class="step-btn" id="pBtn30d" onclick="setPeriod('30D')">МЕСЯЦ</button>
           <button class="step-btn" id="pBtnCustom" onclick="setPeriod('CUSTOM')">ПЕРИОД</button>
@@ -1498,7 +1498,7 @@
 <script>
   let S = null;
   let cooldownSec = 20;
-  let selectedPeriod = 'DAY'; // DAY, 24H, 7D, 30D, CUSTOM
+  let selectedPeriod = '12H'; // 12H, 24H, 7D, 30D, CUSTOM
   const TAB_ORDER = ['ctrl', 'grafana', 'dtek', 'bunker', 'gen'];
   let activeTabId = 'ctrl';
   let genConfigInitialized = false;
@@ -1539,6 +1539,8 @@
     'Удержание до стопа': 'Hold Until Dead Stop',
     'Прямой импульс': 'Instant Relay Pulse',
     'ВЫБОР ПЕРИОДА АНАЛИТИКИ': 'ANALYTICS TIME RANGE',
+    '12Ч': '12H',
+    '24Ч': '24H',
     'ДЕНЬ': 'TODAY',
     'СУТКИ 24Ч': '24 HOURS',
     'НЕДЕЛЯ': '7 DAYS',
@@ -1735,9 +1737,10 @@
 
   function setPeriod(p) {
     selectedPeriod = p;
-    const map = { 'DAY': 'pBtnDay', '24H': 'pBtn24h', '7D': 'pBtn7d', '30D': 'pBtn30d', 'CUSTOM': 'pBtnCustom' };
+    const map = { '12H': 'pBtn12h', '24H': 'pBtn24h', '7D': 'pBtn7d', '30D': 'pBtn30d', 'CUSTOM': 'pBtnCustom' };
     Object.keys(map).forEach(k => {
-      document.getElementById(map[k]).classList.toggle('active', k === p);
+      const el = document.getElementById(map[k]);
+      if (el) el.classList.toggle('active', k === p);
     });
     document.getElementById('customDateRow').classList.toggle('active', p === 'CUSTOM');
     if (S) renderGrafanaPanels(S);
@@ -2903,19 +2906,25 @@
   // =========================================================================
 
   function getPeriodWindow(nowMs) {
-    const dt = new Date(nowMs);
-    if (selectedPeriod === 'DAY') {
-      const start = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime();
+    if (selectedPeriod === '12H' || selectedPeriod === 'DAY') {
+      const sMs = nowMs - 12 * 3600_000;
       return {
-        startMs: start,
+        startMs: sMs,
         endMs: nowMs,
         label: isEn()
-          ? `TODAY (${fmtDateDM(nowMs)} 00:00 — ${fmtTimeHM(nowMs)})`
-          : `СЕГОДНЯ (${fmtDateDM(nowMs)} 00:00 — ${fmtTimeHM(nowMs)})`
+          ? `LAST 12 HOURS (${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
+          : `ПОСЛЕДНИЕ 12 ЧАСОВ (${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
       };
     }
     if (selectedPeriod === '24H') {
-      return { startMs: nowMs - 24 * 3600_000, endMs: nowMs, label: isEn() ? 'LAST 24 HOURS' : 'ПОСЛЕДНИЕ 24 ЧАСА' };
+      const sMs = nowMs - 24 * 3600_000;
+      return {
+        startMs: sMs,
+        endMs: nowMs,
+        label: isEn()
+          ? `LAST 24 HOURS (${fmtDateDM(sMs)} ${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
+          : `ПОСЛЕДНИЕ 24 ЧАСА (${fmtDateDM(sMs)} ${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
+      };
     }
     if (selectedPeriod === '7D') {
       return { startMs: nowMs - 7 * 86400_000, endMs: nowMs, label: isEn() ? 'LAST 7 DAYS' : 'ПОСЛЕДНИЕ 7 ДНЕЙ' };
@@ -2938,6 +2947,75 @@
     };
   }
 
+  function buildUnifiedCurvePoints(clipped, rawCurve, spanStart, endMs, d) {
+    const rawInWin = (rawCurve || [])
+      .filter(p => p && p.ts && p.ts >= spanStart && p.ts <= endMs)
+      .sort((a, b) => a.ts - b.ts);
+
+    const hasNearRaw = (tMs, tolMs) => {
+      // Binary or linear check for nearby raw telemetry point
+      for (let i = 0; i < rawInWin.length; i++) {
+        const diff = rawInWin[i].ts - tMs;
+        if (Math.abs(diff) <= tolMs) return true;
+        if (diff > tolMs) break;
+      }
+      return false;
+    };
+
+    const synth = [];
+    const span = Math.max(60_000, endMs - spanStart);
+    const stepMs = Math.max(180_000, Math.round(span / 96));
+    const tolMs = Math.max(210_000, Math.round(stepMs * 0.75));
+
+    clipped.forEach(iv => {
+      const s = iv.startMs;
+      const e = iv.endMs;
+      const dur = Math.max(1, e - s);
+      const sSoc = iv.startSoc ?? 50;
+      const eSoc = iv.endSoc ?? sSoc;
+      const m = iv.mode || 'BATTERY';
+      const outW = m === 'BLACKOUT_ZERO' ? 0 : (iv.avgOutW > 0 ? iv.avgOutW : 380);
+      const inW = (m === 'GRID' || m === 'GENERATOR') ? (iv.avgInW > 0 ? iv.avgInW : outW) : 0;
+      const acInW = (m === 'GRID' || m === 'GENERATOR') ? Math.max(0, inW - outW) : 0;
+
+      const makePt = (tMs, frac) => ({
+        t: fmtTimeHM(tMs),
+        ts: tMs,
+        batt: Math.max(0, Math.min(100, Math.round(sSoc + (eSoc - sSoc) * frac))),
+        inW: inW,
+        acInW: acInW,
+        outW: outW,
+        mode: m
+      });
+
+      // Add interval start, stepped interior points, and interval end if not covered by raw telemetry
+      if (!hasNearRaw(s, 90_000)) {
+        synth.push(makePt(s + 1000, 0));
+      }
+      for (let tMs = s + stepMs; tMs < e - stepMs / 2; tMs += stepMs) {
+        if (!hasNearRaw(tMs, tolMs)) {
+          synth.push(makePt(tMs, (tMs - s) / dur));
+        }
+      }
+      if (!hasNearRaw(e, 90_000)) {
+        synth.push(makePt(Math.max(s + 2000, e - 1000), 1));
+      }
+    });
+
+    const combined = [...synth, ...rawInWin].sort((a, b) => a.ts - b.ts);
+    if (combined.length === 0) {
+      combined.push({
+        t: fmtTimeHM(endMs),
+        ts: endMs,
+        batt: (d.oukitel && d.oukitel.batteryPct) || 0,
+        inW: (d.oukitel && d.oukitel.totalInputW) || 0,
+        acInW: (d.oukitel && d.oukitel.acInputW) || 0,
+        outW: (d.oukitel && d.oukitel.totalOutputW) || 0
+      });
+    }
+    return combined;
+  }
+
   function renderGrafanaPanels(d) {
     if (!d) return;
     const nowMs = d.timestamp || Date.now();
@@ -2948,14 +3026,22 @@
     const rawIntervals = hist.intervals || [];
     const rawCurve = hist.curve || [];
 
-    // Filter & clip intervals to [win.startMs, win.endMs]
+    // Filter & clip intervals to [win.startMs, win.endMs] with interpolated boundary SoC
     let gridMs = 0, genMs = 0, battMs = 0, zeroMs = 0;
     const clipped = [];
 
     rawIntervals.forEach(iv => {
-      const s = Math.max(win.startMs, iv.startMs || 0);
-      const e = Math.min(win.endMs, iv.endMs || nowMs);
+      const origS = iv.startMs || 0;
+      const origE = Math.min(nowMs, iv.endMs || nowMs);
+      const s = Math.max(win.startMs, origS);
+      const e = Math.min(win.endMs, origE);
       if (e > s) {
+        const origDur = Math.max(1, origE - origS);
+        const origStartSoc = iv.startSoc ?? 0;
+        const origEndSoc = iv.endSoc ?? origStartSoc;
+        const clipStartSoc = Math.round(origStartSoc + (origEndSoc - origStartSoc) * ((s - origS) / origDur));
+        const clipEndSoc = Math.round(origStartSoc + (origEndSoc - origStartSoc) * ((e - origS) / origDur));
+
         const dur = e - s;
         const m = iv.mode || 'BATTERY';
         if (m === 'GRID') gridMs += dur;
@@ -2968,8 +3054,8 @@
           startMs: s,
           endMs: e,
           durMs: dur,
-          startSoc: iv.startSoc ?? 0,
-          endSoc: iv.endSoc ?? 0,
+          startSoc: clipStartSoc,
+          endSoc: clipEndSoc,
           avgInW: iv.avgInW ?? 0,
           avgOutW: iv.avgOutW ?? 0
         });
@@ -3006,27 +3092,21 @@
       ? `${pct(zeroMs)}% (Total 0% / Offline)`
       : `${pct(zeroMs)}% (Полный 0 / Оффлайн)`;
 
+    // Unified time span across Timeline, Power Chart, and SoC Chart
+    const spanStart = clipped.length > 0 ? Math.max(win.startMs, clipped[0].startMs) : win.startMs;
+    const spanEnd = win.endMs;
+
     // Draw Gantt / State Timeline Canvas
-    drawStateTimelineCanvas('cvStateTimeline', clipped, win.startMs, win.endMs);
+    drawStateTimelineCanvas('cvStateTimeline', clipped, spanStart, spanEnd);
 
     // Render Daily Breakdown Bars if multi-day period
-    renderDailyBreakdown('dailyBreakdownBox', clipped, selectedPeriod !== 'DAY' && selectedPeriod !== '24H');
+    renderDailyBreakdown('dailyBreakdownBox', clipped, selectedPeriod !== '12H' && selectedPeriod !== '24H');
 
     // Render Minute-by-Minute Interval Log (Newest first)
     renderIntervalLog('intervalLogList', clipped);
 
-    // Filter telemetry points to period (or fallback to all points if today)
-    let pts = rawCurve.filter(p => !p.ts || (p.ts >= win.startMs && p.ts <= win.endMs));
-    if (pts.length === 0) {
-      pts = [{
-        t: fmtTimeHM(nowMs),
-        ts: nowMs,
-        batt: (d.oukitel && d.oukitel.batteryPct) || 0,
-        inW: (d.oukitel && d.oukitel.totalInputW) || 0,
-        acInW: (d.oukitel && d.oukitel.acInputW) || 0,
-        outW: (d.oukitel && d.oukitel.totalOutputW) || 0
-      }];
-    }
+    // Build unified telemetry curve covering the full [spanStart, spanEnd] window
+    const pts = buildUnifiedCurvePoints(clipped, rawCurve, spanStart, spanEnd, d);
     document.getElementById('gfSamplesCount').textContent = isEn()
       ? `${pts.length} pts`
       : `${pts.length} точек`;
@@ -3042,7 +3122,9 @@
         { key: 'outW',  name: isEn() ? 'Home Load (Output)'       : 'Нагрузка дома (Выход)',    unit: wUnit, color: '#FF9830' }
       ],
       0,
-      1800
+      1800,
+      spanStart,
+      spanEnd
     );
 
     drawGrafanaChart(
@@ -3053,11 +3135,13 @@
         { key: 'batt', name: isEn() ? 'Oukitel Battery SoC' : 'Заряд батареи Oukitel', unit: '%', color: '#33B5E5' }
       ],
       0,
-      100
+      100,
+      spanStart,
+      spanEnd
     );
   }
 
-  function drawStateTimelineCanvas(canvasId, clipped, startMs, endMs) {
+  function drawStateTimelineCanvas(canvasId, clipped, spanStart, endMs) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -3078,9 +3162,6 @@
     ctx.fillStyle = '#181B20';
     ctx.fillRect(padL, padT, barW, barH);
 
-    // Effective span: if clipped exists, span from earliest recorded in window to endMs so bar is rich & readable
-    const effectiveStart = clipped.length > 0 ? Math.min(startMs, clipped[0].startMs) : startMs;
-    const spanStart = clipped.length > 0 && selectedPeriod === 'DAY' ? clipped[0].startMs : effectiveStart;
     const span = Math.max(60_000, endMs - spanStart);
 
     const colors = {
@@ -3196,7 +3277,7 @@
     });
   }
 
-  function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxYDefault) {
+  function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxYDefault, spanStart, endMs) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -3240,16 +3321,20 @@
       ctx.fillText(String(val), padL - 5, y + 3);
     }
 
-    const vSteps = Math.min(4, Math.max(1, pts.length - 1));
-    ctx.textAlign = 'center';
+    const tStart = spanStart || (pts[0] && pts[0].ts) || (Date.now() - 3600_000);
+    const tEnd = endMs || (pts[pts.length - 1] && pts[pts.length - 1].ts) || Date.now();
+    const span = Math.max(60_000, tEnd - tStart);
+
+    const vSteps = 4;
     for (let i = 0; i <= vSteps; i++) {
-      const idx = Math.min(pts.length - 1, Math.round((i / vSteps) * (pts.length - 1)));
-      const x = padL + (pts.length > 1 ? (idx / (pts.length - 1)) * plotW : plotW / 2);
+      const tMs = tStart + (span / vSteps) * i;
+      const x = padL + (plotW / vSteps) * i;
       ctx.beginPath();
       ctx.moveTo(x, padT);
       ctx.lineTo(x, padT + plotH);
       ctx.stroke();
-      const lbl = (pts[idx] && pts[idx].t) ? pts[idx].t.slice(0, 5) : '';
+      ctx.textAlign = i === 0 ? 'left' : (i === vSteps ? 'right' : 'center');
+      const lbl = span > 90000_000 ? `${fmtDateDM(tMs)} ${fmtTimeHM(tMs)}` : fmtTimeHM(tMs);
       ctx.fillText(lbl, x, H - 5);
     }
 
@@ -3263,8 +3348,10 @@
       const max = Math.max(...vals);
       const mean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
 
-      const coords = vals.map((v, idx) => {
-        const x = padL + (vals.length > 1 ? (idx / (vals.length - 1)) * plotW : plotW);
+      const coords = pts.map((p, idx) => {
+        const v = vals[idx];
+        const fracX = p.ts ? Math.max(0, Math.min(1, (p.ts - tStart) / span)) : (pts.length > 1 ? idx / (pts.length - 1) : 1);
+        const x = padL + fracX * plotW;
         const norm = (v - minVal) / Math.max(1, (maxVal - minVal));
         const y = padT + plotH - Math.max(0, Math.min(1, norm)) * plotH;
         return { x, y };
