@@ -176,11 +176,16 @@ class MainActivity : Activity() {
         fun setOukitelChargeLimit(limit: Int) {
             hapticTick()
             bgExecutor.execute {
-                engine.oukitel.setAcChargingLimit(limit)
-                engine.notifySnapshot()
+                engine.setManualChargeLimit(limit)
                 Thread.sleep(2500)
                 engine.pollAllSync()
             }
+        }
+
+        @JavascriptInterface
+        fun saveAutomationConfig(jsonStr: String) {
+            hapticTick()
+            engine.saveAutomationConfig(jsonStr)
         }
 
         @JavascriptInterface
