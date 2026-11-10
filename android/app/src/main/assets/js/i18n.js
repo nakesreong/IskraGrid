@@ -129,7 +129,14 @@ const STATIC_EN_MAP = {
   '4. СИГНАЛ «ПОРА ГЛУШИТЬ RATO» (ЭКОНОМИЯ БЕНЗИНА)': '4. GENERATOR TARGET SOC ALERT (FUEL SAVER)',
   'Подсказка на пульте, когда станция зарядилась от генератора': 'Alerts on dashboard when battery reaches target SoC on genset',
   'ПОРОГ СИГНАЛА НА ГЕНЕРАТОРЕ (%)': 'GENERATOR ALERT SOC (%)',
-  'СОХРАНИТЬ НАСТРОЙКИ АВТОМАТИЗАЦИИ': 'SAVE AUTOMATION RULES'
+  'СОХРАНИТЬ НАСТРОЙКИ АВТОМАТИЗАЦИИ': 'SAVE AUTOMATION RULES',
+  'РАСХОД БЕНЗИНА RATO (ГРАФИК И СВОДКА ЗА ПЕРИОД)': 'RATO GASOLINE CONSUMPTION (CHART & PERIOD SUMMARY)',
+  'СЕГОДНЯ (С 00:00)': 'TODAY (SINCE 00:00)',
+  'Бензин Rato': 'Rato Fuel',
+  'КАЛИБРОВКА РАСХОДА ПО ДОЛИВУ ИЗ КАНИСТРЫ': 'CALIBRATE BURN RATE BY JERRYCAN REFILL',
+  'ФАКТИЧЕСКИ УШЛО (Л)': 'ACTUAL LITERS USED (L)',
+  'ЗА СКОЛЬКО ЧАСОВ (Ч)': 'ENGINE RUN HOURS (H)',
+  'ОТКАЛИБРОВАТЬ РАСХОД ПО ФАКТУ': 'CALIBRATE BURN RATE NOW'
 };
 
 const STATIC_RU_MAP = {};

@@ -35,6 +35,7 @@ function getPeriodWindow(nowMs) {
     return {
       startMs: sMs,
       endMs: nowMs,
+      shortTitle: isEn() ? 'SELECTED (12H)' : 'ЗА ПЕРИОД (12Ч)',
       label: isEn()
         ? `LAST 12 HOURS (${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
         : `ПОСЛЕДНИЕ 12 ЧАСОВ (${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
@@ -45,16 +46,27 @@ function getPeriodWindow(nowMs) {
     return {
       startMs: sMs,
       endMs: nowMs,
+      shortTitle: isEn() ? 'SELECTED (24H)' : 'ЗА ПЕРИОД (24Ч)',
       label: isEn()
         ? `LAST 24 HOURS (${fmtDateDM(sMs)} ${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
         : `ПОСЛЕДНИЕ 24 ЧАСА (${fmtDateDM(sMs)} ${fmtTimeHM(sMs)} — ${fmtTimeHM(nowMs)})`
     };
   }
   if (p === '7D') {
-    return { startMs: nowMs - 7 * 86400_000, endMs: nowMs, label: isEn() ? 'LAST 7 DAYS' : 'ПОСЛЕДНИЕ 7 ДНЕЙ' };
+    return {
+      startMs: nowMs - 7 * 86400_000,
+      endMs: nowMs,
+      shortTitle: isEn() ? 'SELECTED (7D)' : 'ЗА НЕДЕЛЮ (7Д)',
+      label: isEn() ? 'LAST 7 DAYS' : 'ПОСЛЕДНИЕ 7 ДНЕЙ'
+    };
   }
   if (p === '30D') {
-    return { startMs: nowMs - 30 * 86400_000, endMs: nowMs, label: isEn() ? 'LAST 30 DAYS' : 'ПОСЛЕДНИЕ 30 ДНЕЙ' };
+    return {
+      startMs: nowMs - 30 * 86400_000,
+      endMs: nowMs,
+      shortTitle: isEn() ? 'SELECTED (30D)' : 'ЗА МЕСЯЦ (30Д)',
+      label: isEn() ? 'LAST 30 DAYS' : 'ПОСЛЕДНИЕ 30 ДНЕЙ'
+    };
   }
   initDates();
   const fVal = document.getElementById('inpDateFrom').value;
@@ -66,11 +78,39 @@ function getPeriodWindow(nowMs) {
   return {
     startMs: Math.min(sMs, eMs),
     endMs: Math.max(sMs, eMs),
+    shortTitle: isEn() ? 'CUSTOM RANGE' : 'ЗА ВЫБРАННЫЙ ПЕРИОД',
     label: isEn() ? `RANGE: ${fVal} — ${tVal}` : `ПЕРИОД: ${fVal} — ${tVal}`
   };
 }
 
+function calcCumulativeFuelAt(tMs, clipped, cfgG) {
+  let cumL = 0;
+  for (let i = 0; i < clipped.length; i++) {
+    const iv = clipped[i];
+    if (iv.mode !== 'GENERATOR') continue;
+    if (iv.startMs >= tMs) continue;
+    const segEnd = Math.min(iv.endMs, tMs);
+    if (segEnd > iv.startMs) {
+      cumL += calcIntervalFuelLiters(segEnd - iv.startMs, iv.avgInW || iv.avgOutW, cfgG);
+    }
+  }
+  return cumL;
+}
+
+function isGenActiveAt(tMs, ptMode, clipped) {
+  if (ptMode === 'GENERATOR') return true;
+  if (ptMode && ptMode !== 'GENERATOR') return false;
+  for (let i = 0; i < clipped.length; i++) {
+    const iv = clipped[i];
+    if (iv.mode === 'GENERATOR' && tMs >= iv.startMs && tMs <= iv.endMs) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function buildUnifiedCurvePoints(clipped, rawCurve, spanStart, endMs, d) {
+  const cfgG = getGenConfig(d);
   const rawInWin = (rawCurve || [])
     .filter(p => p && p.ts && p.ts >= spanStart && p.ts <= endMs)
     .sort((a, b) => a.ts - b.ts);
@@ -131,9 +171,24 @@ function buildUnifiedCurvePoints(clipped, rawCurve, spanStart, endMs, d) {
       batt: (d.oukitel && d.oukitel.batteryPct) || 0,
       inW: (d.oukitel && d.oukitel.totalInputW) || 0,
       acInW: (d.oukitel && d.oukitel.acInputW) || 0,
-      outW: (d.oukitel && d.oukitel.totalOutputW) || 0
+      outW: (d.oukitel && d.oukitel.totalOutputW) || 0,
+      mode: d.currentMode || 'BATTERY'
     });
   }
+
+  // Enrich every point with instantaneous fuel burn rate (L/h) and cumulative fuel burned in window (L)
+  combined.forEach(p => {
+    const genOn = isGenActiveAt(p.ts, p.mode, clipped);
+    if (genOn) {
+      const w = Math.max(p.inW || 0, p.outW || 0, 40) > 40 ? Math.max(p.inW || 0, p.outW || 0) : 880;
+      const kw = Math.min(cfgG.maxKw, w / 1000.0);
+      p.fuelRateLh = cfgG.idleLh + kw * cfgG.slopePerKw;
+    } else {
+      p.fuelRateLh = 0;
+    }
+    p.fuelCumL = calcCumulativeFuelAt(p.ts, clipped, cfgG);
+  });
+
   return combined;
 }
 
@@ -193,9 +248,14 @@ function renderGrafanaPanels(d) {
   document.getElementById('sumGenTime').textContent  = fmtMinExact(genMs);
   const cfgG = getGenConfig(d);
   let exactGenLiters = 0;
+  let periodGenRuns = 0;
+  let periodGenWeightedW = 0;
   clipped.forEach(iv => {
     if (iv.mode === 'GENERATOR') {
-      exactGenLiters += calcIntervalFuelLiters(iv.durMs, iv.avgInW || iv.avgOutW, cfgG);
+      const w = (iv.avgInW && iv.avgInW > 40) ? iv.avgInW : ((iv.avgOutW && iv.avgOutW > 40) ? iv.avgOutW : 880);
+      exactGenLiters += calcIntervalFuelLiters(iv.durMs, w, cfgG);
+      periodGenRuns += 1;
+      periodGenWeightedW += iv.durMs * w;
     }
   });
   document.getElementById('sumGenPct').textContent   = isEn()
@@ -252,6 +312,193 @@ function renderGrafanaPanels(d) {
     spanStart,
     spanEnd
   );
+
+  // Render Fuel Analytics & Chart on Tab 2
+  renderFuelAnalyticsPanel(d, cfgG, rawIntervals, pts, win, spanStart, spanEnd, genMs, exactGenLiters, periodGenRuns, periodGenWeightedW);
+}
+
+function renderFuelAnalyticsPanel(d, cfg, rawIntervals, pts, win, spanStart, spanEnd, periodGenMs, periodGenL, periodGenRuns, periodGenWeightedW) {
+  const fMeta = document.getElementById('genFuelFormulaMeta');
+  if (fMeta) {
+    fMeta.textContent = isEn()
+      ? `Idle ${cfg.idleLh.toFixed(2)} L/h • ½ ${cfg.fuelHalfLh.toFixed(2)} L/h • Max ${cfg.fuelFullLh.toFixed(2)} L/h`
+      : `Холостой ${cfg.idleLh.toFixed(2)} л/ч • ½ ${cfg.fuelHalfLh.toFixed(2)} л/ч • Макс ${cfg.fuelFullLh.toFixed(2)} л/ч`;
+  }
+
+  const nowMs = d.timestamp || Date.now();
+  const dt = new Date(nowMs);
+  const todayStartMs = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime();
+  const yestStartMs = todayStartMs - 86400_000;
+  const d7StartMs = todayStartMs - 6 * 86400_000;
+  const d30StartMs = todayStartMs - 29 * 86400_000;
+
+  let todayMs = 0, todayL = 0, todayRuns = 0, todayWeightedW = 0;
+  let yestMs = 0, yestL = 0, yestRuns = 0;
+  let d7Ms = 0, d7L = 0;
+  let d30Ms = 0, d30L = 0;
+  const dailyMap = {};
+
+  rawIntervals.forEach(iv => {
+    if (iv.mode !== 'GENERATOR') return;
+    const s = iv.startMs || 0;
+    const e = Math.min(nowMs, iv.endMs || nowMs);
+    if (e <= s) return;
+
+    const w = (iv.avgInW && iv.avgInW > 40) ? iv.avgInW : ((iv.avgOutW && iv.avgOutW > 40) ? iv.avgOutW : 880);
+
+    let cur = s;
+    while (cur < e) {
+      const cDt = new Date(cur);
+      const dayStart = new Date(cDt.getFullYear(), cDt.getMonth(), cDt.getDate(), 0, 0, 0, 0).getTime();
+      const nextDay = dayStart + 86400_000;
+      const segEnd = Math.min(e, nextDay);
+      const dur = segEnd - cur;
+      const lit = calcIntervalFuelLiters(dur, w, cfg);
+
+      const key = `${cDt.getFullYear()}-${String(cDt.getMonth()+1).padStart(2,'0')}-${String(cDt.getDate()).padStart(2,'0')}`;
+      if (!dailyMap[key]) {
+        dailyMap[key] = { key, ts: dayStart, label: fmtDateDM(dayStart), durMs: 0, liters: 0, runs: 0, weightedW: 0 };
+      }
+      dailyMap[key].durMs += dur;
+      dailyMap[key].liters += lit;
+      dailyMap[key].runs += 1;
+      dailyMap[key].weightedW += dur * w;
+
+      if (dayStart === todayStartMs) {
+        todayMs += dur;
+        todayL += lit;
+        todayRuns += 1;
+        todayWeightedW += dur * w;
+      } else if (dayStart === yestStartMs) {
+        yestMs += dur;
+        yestL += lit;
+        yestRuns += 1;
+      }
+      if (dayStart >= d7StartMs) {
+        d7Ms += dur;
+        d7L += lit;
+      }
+      if (dayStart >= d30StartMs) {
+        d30Ms += dur;
+        d30L += lit;
+      }
+      cur = segEnd;
+    }
+  });
+
+  const lUnit = isEn() ? 'L' : 'л';
+  const lhUnit = isEn() ? 'L/h' : 'л/ч';
+  const hUnit = isEn() ? 'h' : 'ч';
+
+  // Card 1: Selected Period Fuel
+  const pTitleEl = document.getElementById('gfPeriodTitle');
+  if (pTitleEl) pTitleEl.textContent = win.shortTitle;
+  const pTimeEl = document.getElementById('gfPeriodTime');
+  if (pTimeEl) pTimeEl.textContent = fmtMinExact(periodGenMs);
+  const pLitEl = document.getElementById('gfPeriodLiters');
+  if (pLitEl) pLitEl.textContent = `${periodGenL.toFixed(2)} ${lUnit}`;
+  const pSubEl = document.getElementById('gfPeriodSub');
+  if (pSubEl) {
+    const pAvgW = periodGenMs > 0 ? Math.round(periodGenWeightedW / periodGenMs) : 0;
+    const pAvgLh = periodGenMs > 0 ? (periodGenL / (periodGenMs / 3600_000)) : 0;
+    pSubEl.textContent = periodGenMs > 0
+      ? (isEn() ? `${periodGenRuns} run(s) • ~${pAvgW}W (${pAvgLh.toFixed(2)} L/h)` : `${periodGenRuns} пуск(а) • ~${pAvgW}Вт (${pAvgLh.toFixed(2)} л/ч)`)
+      : (isEn() ? 'No generator runs in period' : 'Без запусков за период');
+  }
+
+  // Card 2: Today & Yesterday
+  const todayAvgW = todayMs > 0 ? Math.round(todayWeightedW / todayMs) : 0;
+  const tTimeEl = document.getElementById('gfTodayTime');
+  if (tTimeEl) tTimeEl.textContent = fmtMinExact(todayMs);
+  const tLitEl = document.getElementById('gfTodayLiters');
+  if (tLitEl) tLitEl.textContent = `${todayL.toFixed(2)} ${lUnit}`;
+  const tSubEl = document.getElementById('gfTodaySub');
+  if (tSubEl) {
+    tSubEl.textContent = isEn()
+      ? `Yesterday: ${yestL.toFixed(2)} L (${fmtMinExact(yestMs)})`
+      : `Вчера: ${yestL.toFixed(2)} л (${fmtMinExact(yestMs)})`;
+  }
+
+  // Card 3: 7 Days
+  const d7TimeEl = document.getElementById('gf7dTime');
+  if (d7TimeEl) d7TimeEl.textContent = fmtMinExact(d7Ms);
+  const d7LitEl = document.getElementById('gf7dLiters');
+  if (d7LitEl) d7LitEl.textContent = `${d7L.toFixed(2)} ${lUnit}`;
+  const d7SubEl = document.getElementById('gf7dSub');
+  if (d7SubEl) d7SubEl.textContent = isEn() ? 'Past 7 days' : 'За последние 7 суток';
+
+  // Card 4: 30 Days / Total
+  const rato = d.rato || {};
+  const totalMotoH = Number(rato.motoHours || 0);
+  const totalEstL = Math.max(d30L, totalMotoH * (cfg.idleLh + 0.88 * cfg.slopePerKw));
+  const d30TimeEl = document.getElementById('gf30dTime');
+  if (d30TimeEl) d30TimeEl.textContent = `${totalMotoH.toFixed(1)} ${hUnit}`;
+  const d30LitEl = document.getElementById('gf30dLiters');
+  if (d30LitEl) d30LitEl.textContent = `${totalEstL.toFixed(1)} ${lUnit}`;
+  const d30SubEl = document.getElementById('gf30dSub');
+  if (d30SubEl) {
+    d30SubEl.textContent = isEn()
+      ? `Total engine hours: ${totalMotoH.toFixed(1)} h`
+      : `Общий накат: ${totalMotoH.toFixed(1)} моточасов`;
+  }
+
+  // Draw Fuel Chart (#cvFuel) for the selected period [spanStart, spanEnd]
+  const maxFuelY = Math.max(2.5, Math.ceil(Math.max(periodGenL, cfg.fuelFullLh) * 2) / 2);
+  drawGrafanaChart(
+    'cvFuel',
+    'lgFuel',
+    pts,
+    [
+      { key: 'fuelRateLh', name: isEn() ? 'Instant Burn Rate'      : 'Текущий расход (л/ч)',  unit: lhUnit, color: '#FF9830', decimals: 2 },
+      { key: 'fuelCumL',   name: isEn() ? 'Burned in Period (Cum)' : 'Сожжено за период (л)', unit: lUnit,  color: '#FADE2A', decimals: 2 }
+    ],
+    0,
+    maxFuelY,
+    spanStart,
+    spanEnd
+  );
+
+  // Daily Fuel Log List (filtered to window or showing all recent days)
+  const dayKeys = Object.keys(dailyMap).sort().reverse();
+  const daysCntEl = document.getElementById('gfDaysCount');
+  if (daysCntEl) {
+    daysCntEl.textContent = isEn()
+      ? `${dayKeys.length} active day(s)`
+      : `${dayKeys.length} дн. с запусками`;
+  }
+  const listEl = document.getElementById('genDailyFuelList');
+  if (listEl) {
+    listEl.innerHTML = '';
+    if (dayKeys.length === 0) {
+      listEl.innerHTML = `<div style="font-family:var(--mono); font-size:10px; color:var(--muted); padding:6px;">${isEn() ? 'No generator runs recorded yet.' : 'Пока нет записанных запусков генератора.'}</div>`;
+    } else {
+      dayKeys.forEach(k => {
+        const item = dailyMap[k];
+        const avgW = item.durMs > 0 ? Math.round(item.weightedW / item.durMs) : 880;
+        const avgLh = item.durMs > 0 ? (item.liters / (item.durMs / 3600_000)) : cfg.fuelHalfLh;
+        const isToday = item.ts === todayStartMs;
+        const isYest = item.ts === yestStartMs;
+        const tag = isToday
+          ? (isEn() ? ' (TODAY)' : ' (СЕГОДНЯ)')
+          : (isYest ? (isEn() ? ' (YESTERDAY)' : ' (ВЧЕРА)') : '');
+
+        const row = document.createElement('div');
+        row.className = 'log-row mode-GENERATOR';
+        row.innerHTML = `
+          <div>
+            <div style="font-weight:700; color:var(--text);">${item.label}${tag} • ${fmtMinExact(item.durMs)}</div>
+            <div style="color:var(--muted); margin-top:1px;">${isEn()
+              ? `Runs: ${item.runs} • Avg load ~${avgW} W (${avgLh.toFixed(2)} L/h)`
+              : `Пусков: ${item.runs} • Ср. нагрузка ~${avgW} Вт (${avgLh.toFixed(2)} л/ч)`}</div>
+          </div>
+          <div style="font-weight:700; font-size:13px; color:var(--amber); text-align:right;">
+            ${item.liters.toFixed(2)} ${lUnit}
+          </div>
+        `;
+        listEl.appendChild(row);
+      });
+    }
+  }
 }
 
 function drawStateTimelineCanvas(canvasId, clipped, spanStart, endMs) {
@@ -405,11 +652,14 @@ function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxY
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
+  const isSmallScale = maxYDefault <= 25;
   let maxVal = maxYDefault;
   pts.forEach(p => {
     seriesList.forEach(s => {
       const v = Number(p[s.key] || 0);
-      if (v > maxVal) maxVal = Math.ceil(v / 100) * 100;
+      if (v > maxVal) {
+        maxVal = isSmallScale ? (Math.ceil(v * 2) / 2) : (Math.ceil(v / 100) * 100);
+      }
     });
   });
   const minVal = minYDefault;
@@ -423,12 +673,13 @@ function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxY
   const steps = 4;
   for (let i = 0; i <= steps; i++) {
     const y = padT + (plotH / steps) * i;
-    const val = Math.round(maxVal - ((maxVal - minVal) / steps) * i);
+    const rawV = maxVal - ((maxVal - minVal) / steps) * i;
+    const valStr = isSmallScale ? rawV.toFixed(1) : String(Math.round(rawV));
     ctx.beginPath();
     ctx.moveTo(padL, y);
     ctx.lineTo(padL + plotW, y);
     ctx.stroke();
-    ctx.fillText(String(val), padL - 5, y + 3);
+    ctx.fillText(valStr, padL - 5, y + 3);
   }
 
   const tStart = spanStart || (pts[0] && pts[0].ts) || (Date.now() - 3600_000);
@@ -462,7 +713,7 @@ function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxY
       const v = vals[idx];
       const fracX = p.ts ? Math.max(0, Math.min(1, (p.ts - tStart) / span)) : (pts.length > 1 ? idx / (pts.length - 1) : 1);
       const x = padL + fracX * plotW;
-      const norm = (v - minVal) / Math.max(1, (maxVal - minVal));
+      const norm = (v - minVal) / Math.max(0.001, (maxVal - minVal));
       const y = padT + plotH - Math.max(0, Math.min(1, norm)) * plotH;
       return { x, y };
     });
@@ -489,7 +740,8 @@ function drawGrafanaChart(canvasId, legendId, pts, seriesList, minYDefault, maxY
     ctx.stroke();
 
     if (tbody) {
-      const fmt = v => Math.round(v) + ' ' + s.unit;
+      const dec = s.decimals ?? 0;
+      const fmt = v => (dec > 0 ? v.toFixed(dec) : Math.round(v)) + ' ' + s.unit;
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="lg-line" style="background:${s.color};"></span>${s.name}</td>
