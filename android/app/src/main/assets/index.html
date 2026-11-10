@@ -798,26 +798,26 @@
 
         <div class="btn-group-3">
           <button class="ctrl-btn" id="btnModeIdle" onclick="setChargeProfile('WARMUP')">
-            <span>1. ПРОГРЕВ (25%)</span>
-            <span class="sub">Первые 10-15 мин (300W в бат.)</span>
+            <span id="lblModeWarmup">1. ПРОГРЕВ (25%)</span>
+            <span class="sub" id="subModeWarmup">Первые 10-15 мин (300W в бат.)</span>
           </button>
           <button class="ctrl-btn" id="btnModeRato" onclick="setChargeProfile('RATO')">
-            <span>2. ОТ ГЕНЕРАТОРА (50%)</span>
-            <span class="sub">Рабочий с ПК (600W в бат.)</span>
+            <span id="lblModeRato">2. ОТ ГЕНЕРАТОРА (45%)</span>
+            <span class="sub" id="subModeRato">Под игру без рывков (540W в бат.)</span>
           </button>
           <button class="ctrl-btn active-green" id="btnModeMax" onclick="setChargeProfile('MAX')">
-            <span>3. ОТ СЕТИ (100%)</span>
-            <span class="sub">Максимум ДТЕК (1200W в бат.)</span>
+            <span id="lblModeMax">3. ОТ СЕТИ (100%)</span>
+            <span class="sub" id="subModeMax">Максимум ДТЕК (1200W в бат.)</span>
           </button>
         </div>
 
-        <!-- 5 Fine Step Buttons (0 / 25 / 50 / 75 / 100) -->
-        <div class="btn-group-5">
-          <button class="step-btn" id="stLim0" onclick="setChargeLimit(0)">0% (85W)</button>
-          <button class="step-btn" id="stLim25" onclick="setChargeLimit(25)">25% (300W)</button>
-          <button class="step-btn" id="stLim50" onclick="setChargeLimit(50)">50% (600W)</button>
-          <button class="step-btn" id="stLim75" onclick="setChargeLimit(75)">75% (900W)</button>
-          <button class="step-btn active" id="stLim100" onclick="setChargeLimit(100)">100% (1.2kW)</button>
+        <!-- 5 Configurable Step Buttons -->
+        <div class="btn-group-5" id="stepButtonsGrid">
+          <button class="step-btn" id="stBtn0" onclick="clickStepIdx(0)">0% (85W)</button>
+          <button class="step-btn" id="stBtn1" onclick="clickStepIdx(1)">25% (300W)</button>
+          <button class="step-btn" id="stBtn2" onclick="clickStepIdx(2)">45% (540W)</button>
+          <button class="step-btn" id="stBtn3" onclick="clickStepIdx(3)">75% (900W)</button>
+          <button class="step-btn active" id="stBtn4" onclick="clickStepIdx(4)">100% (1.2kW)</button>
         </div>
 
         <!-- Station Outputs -->
@@ -1383,6 +1383,49 @@
         </button>
       </div>
 
+      <!-- PANEL 3.5: CUSTOM CHARGING STEP BUTTONS -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="panel-title">НАСТРОЙКА КНОПОК ШАГОВ ЗАРЯДКИ (%)</span>
+          <span class="panel-meta" id="stepsSavedMeta">0 / 25 / 45 / 75 / 100</span>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:6px; margin-bottom:8px;">
+          <div class="cfg-field">
+            <label class="cfg-label">ШАГ 1 (%)</label>
+            <input type="number" min="0" max="100" class="cfg-input" id="inpStep0" value="0" style="text-align:center;">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ШАГ 2 (%)</label>
+            <input type="number" min="0" max="100" class="cfg-input" id="inpStep1" value="25" style="text-align:center;">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ШАГ 3 (%)</label>
+            <input type="number" min="0" max="100" class="cfg-input" id="inpStep2" value="45" style="text-align:center;">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ШАГ 4 (%)</label>
+            <input type="number" min="0" max="100" class="cfg-input" id="inpStep3" value="75" style="text-align:center;">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label">ШАГ 5 (%)</label>
+            <input type="number" min="0" max="100" class="cfg-input" id="inpStep4" value="100" style="text-align:center;">
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:6px;">
+          <button class="ctrl-btn" style="text-align:center; padding:6px;" onclick="applyPresetSteps([0,25,45,75,100])">
+            <span>ПРЕСЕТ ПОД ИГРУ (45%)</span>
+            <span class="sub">0 / 25 / 45 / 75 / 100</span>
+          </button>
+          <button class="ctrl-btn" style="text-align:center; padding:6px;" onclick="applyPresetSteps([0,25,50,75,100])">
+            <span>ПРЕСЕТ БЕЗ ИГРЫ (50%)</span>
+            <span class="sub">0 / 25 / 50 / 75 / 100</span>
+          </button>
+        </div>
+        <button class="ctrl-btn active-blue" style="width:100%; text-align:center; align-items:center; padding:8px;" onclick="saveCustomSteps()">
+          <span>СОХРАНИТЬ ШАГИ КНОПОК</span>
+        </button>
+      </div>
+
       <!-- PANEL 4: UI LANGUAGE SWITCHER (RU / EN FOR REDDIT SCREENSHOTS) -->
       <div class="panel">
         <div class="panel-hdr">
@@ -1560,7 +1603,16 @@
     'ИНТЕРВАЛ ЗАМЕНЫ МАСЛА (Ч)': 'OIL CHANGE INTERVAL (HRS)',
     'ИНТЕРВАЛ ЗАМЕНЫ СВЕЧИ (Ч)': 'SPARK PLUG INTERVAL (HRS)',
     'ОБЩИЕ МОТОЧАСЫ ГЕНЕРАТОРА (ДЛЯ КОРРЕКТИРОВКИ, Ч)': 'TOTAL ENGINE HOURS OVERRIDE (HRS)',
-    'СОХРАНИТЬ ПАРАМЕТРЫ ГЕНЕРАТОРА': 'SAVE GENERATOR PARAMETERS'
+    'СОХРАНИТЬ ПАРАМЕТРЫ ГЕНЕРАТОРА': 'SAVE GENERATOR PARAMETERS',
+    'НАСТРОЙКА КНОПОК ШАГОВ ЗАРЯДКИ (%)': 'CUSTOM CHARGING STEP BUTTONS (%)',
+    'ШАГ 1 (%)': 'STEP 1 (%)',
+    'ШАГ 2 (%)': 'STEP 2 (%)',
+    'ШАГ 3 (%)': 'STEP 3 (%)',
+    'ШАГ 4 (%)': 'STEP 4 (%)',
+    'ШАГ 5 (%)': 'STEP 5 (%)',
+    'ПРЕСЕТ ПОД ИГРУ (45%)': 'GAMING PRESET (45%)',
+    'ПРЕСЕТ БЕЗ ИГРЫ (50%)': 'STANDARD PRESET (50%)',
+    'СОХРАНИТЬ ШАГИ КНОПОК': 'SAVE STEP BUTTONS'
   };
   const STATIC_RU_MAP = {};
   Object.keys(STATIC_EN_MAP).forEach(k => { STATIC_RU_MAP[STATIC_EN_MAP[k]] = k; });
@@ -1758,20 +1810,118 @@
       : `Сброс 0% -> Продувка ${sec}с -> Shelly`;
   }
 
+  let stepsInitialized = false;
+  function getCustomSteps() {
+    try {
+      const raw = localStorage.getItem('iskra_charge_steps');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length === 5) {
+          return arr.map(x => Math.max(0, Math.min(100, Math.round(Number(x) || 0))));
+        }
+      }
+    } catch (e) {}
+    return [0, 25, 45, 75, 100];
+  }
+
+  function stepWattsLabel(pct) {
+    if (pct <= 0) return '85W';
+    const w = Math.round(pct * 12);
+    return w >= 1000 ? `${(w / 1000).toFixed(1)}kW` : `${w}W`;
+  }
+
+  function syncStepsUI(curLim) {
+    const steps = getCustomSteps();
+    if (!stepsInitialized) {
+      stepsInitialized = true;
+      steps.forEach((v, idx) => {
+        const inp = document.getElementById('inpStep' + idx);
+        if (inp) inp.value = v;
+      });
+    }
+    const metaEl = document.getElementById('stepsSavedMeta');
+    if (metaEl && !metaEl.dataset.flashing) {
+      metaEl.textContent = steps.join(' / ');
+    }
+
+    steps.forEach((v, idx) => {
+      const btn = document.getElementById('stBtn' + idx);
+      if (btn) {
+        btn.textContent = `${v}% (${stepWattsLabel(v)})`;
+        btn.classList.toggle('active', Math.abs((curLim ?? 45) - v) <= 3);
+      }
+    });
+
+    // Sync top 3 quick profile labels with Step 2 (Warmup), Step 3 (Generator), Step 5 (Grid)
+    const sWarm = steps[1] ?? 25;
+    const sGen  = steps[2] ?? 45;
+    const sMax  = steps[4] ?? 100;
+    const lblW = document.getElementById('lblModeWarmup');
+    const subW = document.getElementById('subModeWarmup');
+    const lblG = document.getElementById('lblModeRato');
+    const subG = document.getElementById('subModeRato');
+    const lblM = document.getElementById('lblModeMax');
+    const subM = document.getElementById('subModeMax');
+    if (lblW) lblW.textContent = isEn() ? `1. WARMUP (${sWarm}%)` : `1. ПРОГРЕВ (${sWarm}%)`;
+    if (subW) subW.textContent = isEn() ? `First 10-15m (~${stepWattsLabel(sWarm)} to batt)` : `Первые 10-15 мин (~${stepWattsLabel(sWarm)} в бат.)`;
+    if (lblG) lblG.textContent = isEn() ? `2. GENERATOR (${sGen}%)` : `2. ОТ ГЕНЕРАТОРА (${sGen}%)`;
+    if (subG) subG.textContent = isEn()
+      ? (sGen <= 45 ? `Gaming safe (~${stepWattsLabel(sGen)} to batt)` : `Standard PC (~${stepWattsLabel(sGen)} to batt)`)
+      : (sGen <= 45 ? `Под игру без рывков (~${stepWattsLabel(sGen)} в бат.)` : `Рабочий с ПК (~${stepWattsLabel(sGen)} в бат.)`);
+    if (lblM) lblM.textContent = isEn() ? `3. GRID FAST (${sMax}%)` : `3. ОТ СЕТИ (${sMax}%)`;
+    if (subM) subM.textContent = isEn() ? `Max DTEK (~${stepWattsLabel(sMax)} to batt)` : `Максимум ДТЕК (~${stepWattsLabel(sMax)} в бат.)`;
+  }
+
+  function clickStepIdx(idx) {
+    const steps = getCustomSteps();
+    const val = steps[idx] ?? 45;
+    setChargeLimit(val);
+  }
+
+  function applyPresetSteps(arr) {
+    arr.forEach((v, idx) => {
+      const inp = document.getElementById('inpStep' + idx);
+      if (inp) inp.value = v;
+    });
+    saveCustomSteps();
+  }
+
+  function saveCustomSteps() {
+    const next = [0, 1, 2, 3, 4].map(idx => {
+      const inp = document.getElementById('inpStep' + idx);
+      const val = parseInt(inp ? inp.value : '0', 10);
+      return isNaN(val) ? 0 : Math.max(0, Math.min(100, val));
+    });
+    localStorage.setItem('iskra_charge_steps', JSON.stringify(next));
+    const metaEl = document.getElementById('stepsSavedMeta');
+    if (metaEl) {
+      metaEl.dataset.flashing = '1';
+      metaEl.textContent = isEn() ? '✓ SAVED' : '✓ СОХРАНЕНО';
+      metaEl.style.color = 'var(--green)';
+      setTimeout(() => {
+        delete metaEl.dataset.flashing;
+        metaEl.textContent = next.join(' / ');
+        metaEl.style.color = 'var(--dim)';
+      }, 2000);
+    }
+    syncStepsUI(S && S.oukitel ? S.oukitel.acChargingLimit : 45);
+  }
+
   function setChargeLimit(val) {
     if (window.IskraNative) window.IskraNative.setOukitelChargeLimit(val);
   }
 
   function setChargeProfile(profile) {
     if (!window.IskraNative) return;
+    const steps = getCustomSteps();
     if (profile === 'IDLE') {
-      window.IskraNative.setOukitelChargeLimit(0);
+      window.IskraNative.setOukitelChargeLimit(steps[0] ?? 0);
     } else if (profile === 'WARMUP') {
-      window.IskraNative.setOukitelChargeLimit(25);
+      window.IskraNative.setOukitelChargeLimit(steps[1] ?? 25);
     } else if (profile === 'RATO') {
-      window.IskraNative.setOukitelChargeLimit(50);
+      window.IskraNative.setOukitelChargeLimit(steps[2] ?? 45);
     } else if (profile === 'MAX') {
-      window.IskraNative.setOukitelChargeLimit(100);
+      window.IskraNative.setOukitelChargeLimit(steps[4] ?? 100);
     }
   }
 
@@ -1989,7 +2139,7 @@
     }
 
     // Charging Limit Buttons
-    const lim = ouk.acChargingLimit ?? 50;
+    const lim = ouk.acChargingLimit ?? 45;
     document.getElementById('curLimitLabel').textContent = isEn()
       ? `LIMIT: ${lim}% (TO BATT ${ouk.acInputW || 0}W)`
       : `ЛИМИТ: ${lim}% (В БАТАРЕЮ ${ouk.acInputW || 0}W)`;
@@ -1997,10 +2147,7 @@
     document.getElementById('btnModeRato').className = 'ctrl-btn ' + (lim > 30 && lim <= 80 ? 'active-amber' : '');
     document.getElementById('btnModeMax').className  = 'ctrl-btn ' + (lim > 80 ? 'active-green' : '');
 
-    [0, 25, 50, 75, 100].forEach(v => {
-      const el = document.getElementById('stLim' + v);
-      if (el) el.classList.toggle('active', Math.abs(lim - v) <= 5);
-    });
+    syncStepsUI(lim);
 
     const onWord = isEn() ? 'ENABLED' : 'ВКЛЮЧЕНО';
     const offWord = isEn() ? 'OFF' : 'ВЫКЛ';
