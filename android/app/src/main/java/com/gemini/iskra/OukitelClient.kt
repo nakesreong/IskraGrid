@@ -630,9 +630,17 @@ class OukitelClient(
     // Unified Poll & Hardware Control Commands
     // -----------------------------------------------------------------------
 
+    private var lastLanDiscoverMs: Long = 0L
+
     fun refresh(): OukitelTelemetry {
         val cloudOk = pollCloudTelemetry()
-        val lanOk = performLanTransaction(null)
+        var lanOk = performLanTransaction(null)
+        if (!lanOk && System.currentTimeMillis() - lastLanDiscoverMs > 30_000L) {
+            lastLanDiscoverMs = System.currentTimeMillis()
+            if (discoverOnLan() != null) {
+                lanOk = performLanTransaction(null)
+            }
+        }
         state.online = lanOk || cloudOk
         state.connectionMode = when {
             lanOk && cloudOk -> "LAN + Cloud"

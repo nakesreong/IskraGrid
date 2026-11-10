@@ -15,23 +15,41 @@ let autoStateCache = {
   genTargetSocPct: 90
 };
 
+function formatAutoEventText(raw) {
+  if (!raw || raw === 'Ожидание событий автоматизации' || raw === 'Ожидание триггеров...') {
+    return isEn() ? 'Waiting for automation triggers...' : 'Ожидание событий автоматизации';
+  }
+  if (!isEn()) return raw;
+  return raw
+    .replace('Старт Rato: лимит снижен с ', 'Rato Start: charge limit dropped ')
+    .replace(' до ', ' -> ')
+    .replace(' (прогрев)', ' (warmup)')
+    .replace('Дали свет ДТЕК (заряд ', 'DTEK Grid restored (SoC ')
+    .replace('): авто-разгон зарядки до ', '): auto-boost to ')
+    .replace('Мягкий финиш (', 'Soft Top-Off (')
+    .replace('): ток снижен с ', '): limit eased ')
+    .replace(' для балансировки', ' for LiFePO4 balancing')
+    .replace('Генератор Rato зарядил станцию до ', 'Rato charged station to ')
+    .replace(' — можно глушить!', ' — ready to stop!');
+}
+
 function renderAutomationUI(d) {
   if (!d || !d.automation) return;
   const auto = d.automation;
-  const cfg = auto.config || {};
+  const cfg = auto.config || auto;
 
   if (!autoConfigInitialized) {
     autoConfigInitialized = true;
     autoStateCache = {
       softTopOffEnabled: cfg.softTopOffEnabled !== false,
-      softTopOffThresholdPct: cfg.softTopOffThresholdPct ?? 95,
+      softTopOffThresholdPct: cfg.softTopOffThresholdPct ?? cfg.softTopOffSoc ?? 95,
       softTopOffTargetLimit: cfg.softTopOffTargetLimit ?? 25,
-      coldGenGuardEnabled: cfg.coldGenGuardEnabled !== false,
+      coldGenGuardEnabled: (cfg.coldGenGuardEnabled ?? cfg.genWarmupGuardEnabled) !== false,
       coldGenSafeLimit: cfg.coldGenSafeLimit ?? 25,
-      gridRestoreBoostEnabled: !!cfg.gridRestoreBoostEnabled,
+      gridRestoreBoostEnabled: cfg.gridRestoreBoostEnabled !== false,
       gridRestoreTargetLimit: cfg.gridRestoreTargetLimit ?? 100,
-      genTargetSocAlertEnabled: cfg.genTargetSocAlertEnabled !== false,
-      genTargetSocPct: cfg.genTargetSocPct ?? 90
+      genTargetSocAlertEnabled: (cfg.genTargetSocAlertEnabled ?? cfg.genTargetAlertEnabled) !== false,
+      genTargetSocPct: cfg.genTargetSocPct ?? cfg.genTargetSoc ?? 90
     };
     const setInp = (id, v) => {
       const el = document.getElementById(id);
@@ -44,22 +62,26 @@ function renderAutomationUI(d) {
     setInp('inpAutoGenAlertSoc', autoStateCache.genTargetSocPct);
   } else {
     autoStateCache.softTopOffEnabled = cfg.softTopOffEnabled !== false;
-    autoStateCache.coldGenGuardEnabled = cfg.coldGenGuardEnabled !== false;
-    autoStateCache.gridRestoreBoostEnabled = !!cfg.gridRestoreBoostEnabled;
-    autoStateCache.genTargetSocAlertEnabled = cfg.genTargetSocAlertEnabled !== false;
+    autoStateCache.coldGenGuardEnabled = (cfg.coldGenGuardEnabled ?? cfg.genWarmupGuardEnabled) !== false;
+    autoStateCache.gridRestoreBoostEnabled = cfg.gridRestoreBoostEnabled !== false;
+    autoStateCache.genTargetSocAlertEnabled = (cfg.genTargetSocAlertEnabled ?? cfg.genTargetAlertEnabled) !== false;
   }
 
   // Update Live Event Banner on Tab 1 (Control Panel)
   const bannerTxt = document.getElementById('autoBannerText');
   const bannerMeta = document.getElementById('autoBannerMeta');
   const bannerBox = document.getElementById('autoEventBanner');
+  const evText = formatAutoEventText(auto.lastEventText);
   if (bannerTxt && bannerMeta && bannerBox) {
-    const evText = auto.lastEventText || (isEn() ? 'Waiting for triggers...' : 'Ожидание триггеров...');
     bannerTxt.textContent = evText;
     if (auto.softTopOffActive) {
       bannerBox.style.borderColor = 'rgba(51, 181, 229, 0.55)';
       bannerMeta.textContent = isEn() ? 'CELL BALANCING ACTIVE' : 'БАЛАНСИРОВКА ЯЧЕЕК';
       bannerMeta.style.color = 'var(--cyan)';
+    } else if (auto.genReadyToStop) {
+      bannerBox.style.borderColor = 'rgba(115, 191, 105, 0.65)';
+      bannerMeta.textContent = isEn() ? 'READY TO STOP RATO' : 'МОЖНО ГЛУШИТЬ';
+      bannerMeta.style.color = 'var(--green)';
     } else {
       bannerBox.style.borderColor = '#1C222D';
       bannerMeta.textContent = auto.lastEventMs > 0 ? fmtTimeHM(auto.lastEventMs) : 'AUTO';
@@ -85,8 +107,7 @@ function renderAutomationUI(d) {
 
   const lastEvTab5 = document.getElementById('autoLastEventTab5');
   if (lastEvTab5) {
-    const tStr = auto.lastEventMs > 0 ? ` (${fmtTimeHM(auto.lastEventMs)})` : '';
-    lastEvTab5.textContent = `${auto.lastEventText || 'Ожидание триггеров...'}${tStr}`;
+    lastEvTab5.textContent = evText;
   }
 }
 

@@ -118,8 +118,16 @@ class IskraEngine private constructor(context: Context) {
             }
             smartLife.state.gridOnline = gridUp
 
-            val allDeadZero = !ratoRunning && !gridUp &&
-                (!oukitel.state.online || (oukitel.state.batteryPct <= 1 && !oukitel.state.acSwitch && oukitel.state.totalOutputW == 0))
+            val lastPersistedSoc = prefs.getInt("last_persisted_soc", 50)
+            val effectiveSoc = if (oukitel.state.online) oukitel.state.batteryPct else lastPersistedSoc
+
+            // CRITICAL: Do NOT flip into BLACKOUT_ZERO on a transient phone Wi-Fi <-> LTE handover
+            // when Oukitel still had plenty of battery (> 5%)! Only enter BLACKOUT_ZERO when the station
+            // actually drained to <= 1% with AC off, or went offline after already draining to <= 5%.
+            val allDeadZero = !ratoRunning && !gridUp && (
+                (oukitel.state.online && oukitel.state.batteryPct <= 1 && !oukitel.state.acSwitch && oukitel.state.totalOutputW == 0) ||
+                (!oukitel.state.online && lastPersistedSoc <= 5)
+            )
 
             val newMode = when {
                 ratoRunning -> "GENERATOR"
@@ -159,14 +167,19 @@ class IskraEngine private constructor(context: Context) {
                 ratoController.addMotoSeconds(dtSec)
             }
 
-            historyStore.updatePowerIntervals(now, newMode, oukitel.state)
-            historyStore.recordTelemetrySample(now, newMode, oukitel.state, shelly.state, smartLife.state)
+            historyStore.updatePowerIntervals(now, newMode, oukitel.state, effectiveSoc)
+            // Keep modeStartMs strictly synchronized with the active merged interval start!
+            modeStartMs = historyStore.getLatestIntervalStartMs(modeStartMs)
+            historyStore.recordTelemetrySample(now, newMode, oukitel.state, shelly.state, smartLife.state, effectiveSoc)
 
-            prefs.edit()
+            val ed = prefs.edit()
                 .putLong("last_persisted_tick_ms", now)
+                .putLong("mode_start_ms", modeStartMs)
                 .putString("last_persisted_mode", newMode)
-                .putInt("last_persisted_soc", oukitel.state.batteryPct)
-                .apply()
+            if (oukitel.state.online && oukitel.state.batteryPct > 0) {
+                ed.putInt("last_persisted_soc", oukitel.state.batteryPct)
+            }
+            ed.apply()
 
             val snap = buildStateSnapshot()
             onStateUpdated?.invoke(snap)

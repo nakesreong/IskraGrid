@@ -41,7 +41,21 @@ class TelemetryHistoryStore(
                 val e = cur.optLong("endMs", 0L)
                 if (e <= 1794235670000L) continue
                 val dur = e - s
+                val mode = cur.optString("mode", "")
+                val sSoc = cur.optInt("startSoc", 0)
+                val eSoc = cur.optInt("endSoc", 0)
+                val prevEndSoc = if (i > 0) raw.getJSONObject(i - 1).optInt("endSoc", 0) else 0
+                val nextObj = if (i + 1 < raw.length()) raw.getJSONObject(i + 1) else null
+                val nextMode = nextObj?.optString("mode", "") ?: ""
+                val nextStartSoc = nextObj?.optInt("startSoc", 0) ?: 0
+                // Remove transient glitch intervals (< 45s) AND any bogus BLACKOUT_ZERO split caused by
+                // phone LTE/Wi-Fi dead zones when the station clearly still had charge (> 5% SoC)!
                 if (dur < 45_000L && i < raw.length() - 1) {
+                    continue
+                }
+                if (mode == "BLACKOUT_ZERO" && i < raw.length() - 1 &&
+                    (sSoc > 5 || eSoc > 5 || prevEndSoc > 8 || (nextMode == "BATTERY" && nextStartSoc > 5))
+                ) {
                     continue
                 }
                 cleaned.add(cur)
@@ -76,6 +90,25 @@ class TelemetryHistoryStore(
                 }
             }
             prefs.edit().putString("power_intervals_v3", merged.toString()).apply()
+
+            // Also scrub any false 0% SoC spikes in telemetry_curve_json caused by transient phone network drops
+            val rawCurve = JSONArray(prefs.getString("telemetry_curve_json", "[]"))
+            if (rawCurve.length() > 2) {
+                val cleanCurve = JSONArray()
+                var lastGoodBatt = 50
+                for (i in 0 until rawCurve.length()) {
+                    val pt = rawCurve.getJSONObject(i)
+                    val b = pt.optInt("batt", 0)
+                    val m = pt.optString("mode", "")
+                    val nextB = if (i + 1 < rawCurve.length()) rawCurve.getJSONObject(i + 1).optInt("batt", 0) else b
+                    if (b == 0 && m == "BLACKOUT_ZERO" && (lastGoodBatt > 8 || nextB > 8)) {
+                        continue
+                    }
+                    if (b > 0) lastGoodBatt = b
+                    cleanCurve.put(pt)
+                }
+                prefs.edit().putString("telemetry_curve_json", cleanCurve.toString()).apply()
+            }
         } catch (_: Exception) {}
     }
 
@@ -261,10 +294,10 @@ class TelemetryHistoryStore(
         } catch (_: Exception) {}
     }
 
-    fun updatePowerIntervals(nowMs: Long, mode: String, oukState: OukitelTelemetry) {
+    fun updatePowerIntervals(nowMs: Long, mode: String, oukState: OukitelTelemetry, effectiveSoc: Int = oukState.batteryPct) {
         try {
             val arr = JSONArray(prefs.getString("power_intervals_v3", "[]"))
-            val soc = oukState.batteryPct
+            val soc = if (oukState.online) oukState.batteryPct else effectiveSoc
             val inW = oukState.totalInputW
             val outW = oukState.totalOutputW
 
@@ -287,7 +320,8 @@ class TelemetryHistoryStore(
         mode: String,
         oukState: OukitelTelemetry,
         shellyState: ShellyTelemetry,
-        smartState: SmartLifeState
+        smartState: SmartLifeState,
+        effectiveSoc: Int = oukState.batteryPct
     ) {
         if (nowMs - lastSampleMs < 20_000L) return
         lastSampleMs = nowMs
@@ -296,10 +330,11 @@ class TelemetryHistoryStore(
             val curveArr = JSONArray(prefs.getString("telemetry_curve_json", "[]"))
             val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
             val isZero = (mode == "BLACKOUT_ZERO")
+            val socVal = if (isZero) 0 else (if (oukState.online) oukState.batteryPct else effectiveSoc)
             val pt = JSONObject().apply {
                 put("t", sdf.format(Date(nowMs)))
                 put("ts", nowMs)
-                put("batt", if (isZero) 0 else oukState.batteryPct)
+                put("batt", socVal)
                 put("inW", if (isZero) 0 else oukState.totalInputW)
                 put("acInW", if (isZero) 0 else oukState.acInputW)
                 put("outW", if (isZero) 0 else oukState.totalOutputW)
