@@ -797,27 +797,27 @@
         </div>
 
         <div class="btn-group-3">
-          <button class="ctrl-btn" id="btnModeIdle" onclick="setChargeProfile('IDLE')">
-            <span>1. СБРОС (0%)</span>
-            <span class="sub">Прогрев / Холостой (~85W в бат.)</span>
+          <button class="ctrl-btn" id="btnModeIdle" onclick="setChargeProfile('WARMUP')">
+            <span>1. ПРОГРЕВ (25%)</span>
+            <span class="sub">Первые 10-15 мин (300W в бат.)</span>
           </button>
           <button class="ctrl-btn" id="btnModeRato" onclick="setChargeProfile('RATO')">
-            <span>2. ОТ ГЕНЕРАТОРА</span>
-            <span class="sub">Щадящий 45% (~540W в бат. без рывков)</span>
+            <span>2. ОТ ГЕНЕРАТОРА (50%)</span>
+            <span class="sub">Рабочий с ПК (600W в бат.)</span>
           </button>
           <button class="ctrl-btn active-green" id="btnModeMax" onclick="setChargeProfile('MAX')">
-            <span>3. ОТ СЕТИ (FAST)</span>
-            <span class="sub">Максимум 100% (1200W в батарею)</span>
+            <span>3. ОТ СЕТИ (100%)</span>
+            <span class="sub">Максимум ДТЕК (1200W в бат.)</span>
           </button>
         </div>
 
-        <!-- 5 Fine Step Buttons -->
+        <!-- 5 Fine Step Buttons (0 / 25 / 50 / 75 / 100) -->
         <div class="btn-group-5">
           <button class="step-btn" id="stLim0" onclick="setChargeLimit(0)">0% (85W)</button>
-          <button class="step-btn" id="stLim30" onclick="setChargeLimit(30)">30% (380W)</button>
-          <button class="step-btn" id="stLim45" onclick="setChargeLimit(45)">45% (RATO)</button>
-          <button class="step-btn" id="stLim60" onclick="setChargeLimit(60)">60% (750W)</button>
-          <button class="step-btn active" id="stLim100" onclick="setChargeLimit(100)">100% (FAST)</button>
+          <button class="step-btn" id="stLim25" onclick="setChargeLimit(25)">25% (300W)</button>
+          <button class="step-btn" id="stLim50" onclick="setChargeLimit(50)">50% (600W)</button>
+          <button class="step-btn" id="stLim75" onclick="setChargeLimit(75)">75% (900W)</button>
+          <button class="step-btn active" id="stLim100" onclick="setChargeLimit(100)">100% (1.2kW)</button>
         </div>
 
         <!-- Station Outputs -->
@@ -1470,12 +1470,12 @@
     'УПРАВЛЕНИЕ ЗАРЯДКОЙ И ЛИНИЯМИ ПИТАНИЯ': 'CHARGING PROFILE & INPUT ROUTING',
     'ГЕНЕРАТОР (SOCKET-2)': 'GENERATOR (SOCKET-2)',
     'ПРОФИЛЬ МОЩНОСТИ ЗАРЯДКИ (OUKITEL P1000E+)': 'AC CHARGING POWER PROFILE (OUKITEL P1000E+)',
-    '1. СБРОС (0%)': '1. IDLE / WARMUP',
-    'Прогрев / Холостой (~85W в бат.)': '0% Limit (~85W trickle)',
-    '2. ОТ ГЕНЕРАТОРА': '2. GENERATOR (AVR)',
-    'Щадящий 45% (~540W в бат. без рывков)': 'Smooth 45% (~540W anti-surge)',
-    '3. ОТ СЕТИ (FAST)': '3. GRID FAST',
-    'Максимум 100% (1200W в батарею)': 'Max 100% (1200W fast charge)',
+    '1. ПРОГРЕВ (25%)': '1. WARMUP (25%)',
+    'Первые 10-15 мин (300W в бат.)': 'First 10-15m (300W to batt)',
+    '2. ОТ ГЕНЕРАТОРА (50%)': '2. GENERATOR (50%)',
+    'Рабочий с ПК (600W в бат.)': 'Standard w/ PC (600W to batt)',
+    '3. ОТ СЕТИ (100%)': '3. GRID FAST (100%)',
+    'Максимум ДТЕК (1200W в бат.)': 'Max 100% (1200W fast charge)',
     'ВЫХОДЫ СТАНЦИИ OUKITEL': 'OUKITEL OUTPUT BUSES',
     'LED ФОНАРЬ': 'LED LIGHT',
     'ГЕНЕРАТОР RATO & РЕЛЕ ГЛУШЕНИЯ SHELLY': 'RATO R3000 GENSET & SHELLY KILL RELAY',
@@ -1766,8 +1766,10 @@
     if (!window.IskraNative) return;
     if (profile === 'IDLE') {
       window.IskraNative.setOukitelChargeLimit(0);
+    } else if (profile === 'WARMUP') {
+      window.IskraNative.setOukitelChargeLimit(25);
     } else if (profile === 'RATO') {
-      window.IskraNative.setOukitelChargeLimit(45);
+      window.IskraNative.setOukitelChargeLimit(50);
     } else if (profile === 'MAX') {
       window.IskraNative.setOukitelChargeLimit(100);
     }
@@ -1987,15 +1989,15 @@
     }
 
     // Charging Limit Buttons
-    const lim = ouk.acChargingLimit ?? 45;
+    const lim = ouk.acChargingLimit ?? 50;
     document.getElementById('curLimitLabel').textContent = isEn()
       ? `LIMIT: ${lim}% (TO BATT ${ouk.acInputW || 0}W)`
       : `ЛИМИТ: ${lim}% (В БАТАРЕЮ ${ouk.acInputW || 0}W)`;
-    document.getElementById('btnModeIdle').className = 'ctrl-btn ' + (lim <= 10 ? 'active-blue' : '');
-    document.getElementById('btnModeRato').className = 'ctrl-btn ' + (lim > 10 && lim <= 75 ? 'active-amber' : '');
-    document.getElementById('btnModeMax').className  = 'ctrl-btn ' + (lim > 75 ? 'active-green' : '');
+    document.getElementById('btnModeIdle').className = 'ctrl-btn ' + (lim > 0 && lim <= 30 ? 'active-blue' : '');
+    document.getElementById('btnModeRato').className = 'ctrl-btn ' + (lim > 30 && lim <= 80 ? 'active-amber' : '');
+    document.getElementById('btnModeMax').className  = 'ctrl-btn ' + (lim > 80 ? 'active-green' : '');
 
-    [0, 30, 45, 60, 100].forEach(v => {
+    [0, 25, 50, 75, 100].forEach(v => {
       const el = document.getElementById('stLim' + v);
       if (el) el.classList.toggle('active', Math.abs(lim - v) <= 5);
     });

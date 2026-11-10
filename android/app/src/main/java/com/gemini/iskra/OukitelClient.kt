@@ -58,10 +58,10 @@ class OukitelClient(
     private var accessToken: String? = null
     private var tokenExpirySec: Long = 0L
     private var lastWakeMs: Long = 0L
-    @Volatile private var targetChargeLimit: Int = 45
+    @Volatile private var targetChargeLimit: Int = 50
     private val lanLock = Any()
 
-    val state = OukitelTelemetry(hostIp = hostIp, acChargingLimit = 45)
+    val state = OukitelTelemetry(hostIp = hostIp, acChargingLimit = 50)
 
     fun setHostIp(ip: String) {
         if (ip.isNotBlank()) {
@@ -594,8 +594,8 @@ class OukitelClient(
                     "remain_charging_time" -> state.remainChargeMinutes = raw.toIntOrNull() ?: state.remainChargeMinutes
                     "temp" -> state.tempC = raw.toIntOrNull() ?: state.tempC
                     "ac_charging_limit" -> {
-                        val v = raw.toIntOrNull() ?: 0
-                        if (v > 0) {
+                        val v = raw.toIntOrNull() ?: -1
+                        if (v >= 0) {
                             targetChargeLimit = v
                             state.acChargingLimit = v
                         }

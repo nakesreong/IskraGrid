@@ -400,10 +400,11 @@ class IskraEngine private constructor(context: Context) {
             }
 
             if (newMode != currentMode) {
-                // Auto-protect Rato generator: if transitioning to GENERATOR while limit is > 45%, drop to 35%
-                if (newMode == "GENERATOR" && oukitel.state.acChargingLimit > 45) {
+                // On cold generator start, if limit was left at 100% (Grid), set to 25% warmup once.
+                // Never override manual user choices while running!
+                if (newMode == "GENERATOR" && oukitel.state.acChargingLimit > 75) {
                     executor.execute {
-                        try { oukitel.setAcChargingLimit(35) } catch (_: Exception) {}
+                        try { oukitel.setAcChargingLimit(25) } catch (_: Exception) {}
                     }
                 }
                 currentMode = newMode
