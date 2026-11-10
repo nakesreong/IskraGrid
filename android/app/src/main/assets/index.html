@@ -2584,8 +2584,14 @@
       tomorrowObj = { slots: [], date: '' };
     }
 
-    const todaySlots = (todayObj && todayObj.slots) ? todayObj.slots : [];
-    const tomorrowSlots = (tomorrowObj && tomorrowObj.slots) ? tomorrowObj.slots : [];
+    const isEmergency = (todayObj && todayObj.status === 'EmergencyShutdowns');
+    const rawTodaySlots = (todayObj && todayObj.slots) ? todayObj.slots : [];
+    const fallbackTodaySlots = (todayObj && todayObj.fallbackSlots) ? todayObj.fallbackSlots : [];
+    const todaySlots = rawTodaySlots.length > 0 ? rawTodaySlots : fallbackTodaySlots;
+
+    const rawTomorrowSlots = (tomorrowObj && tomorrowObj.slots) ? tomorrowObj.slots : [];
+    const fallbackTomorrowSlots = (tomorrowObj && tomorrowObj.fallbackSlots) ? tomorrowObj.fallbackSlots : [];
+    const tomorrowSlots = rawTomorrowSlots.length > 0 ? rawTomorrowSlots : fallbackTomorrowSlots;
 
     document.getElementById('dtGroupBadge').textContent = sched.group || '33.1';
     // In English mode, automatically mask personal street address for safe Reddit screenshots!
@@ -2599,9 +2605,76 @@
         : `Обновлено в ${fmtTimeHM(sched.fetchedAtMs)}`;
     }
 
-    // Find current active slot in todaySlots
+    const tagEl = document.getElementById('dtHeroTag');
+    const spanEl = document.getElementById('dtHeroSlotSpan');
+    const countEl = document.getElementById('dtHeroCountdown');
+    const nextEl = document.getElementById('dtHeroNextInfo');
+    const barEl = document.getElementById('dtHeroBar');
+    const factEl = document.getElementById('dtFactMatch');
+    const gridUp = !!(d.smartLife && d.smartLife.gridOnline);
+
+    // Find current active slot in todaySlots (either official or fallback reference)
     let curSlot = todaySlots.find(s => nowMin >= s.start && nowMin < s.end) || todaySlots[todaySlots.length - 1];
-    if (curSlot) {
+
+    if (isEmergency) {
+      tagEl.textContent = isEn()
+        ? '⚠️ DTEK: EMERGENCY BLACKOUTS'
+        : '⚠️ ДТЕК: ЭКСТРЕННЫЕ ОТКЛЮЧЕНИЯ';
+      tagEl.style.color = 'var(--amber)';
+
+      countEl.textContent = isEn()
+        ? 'SCHEDULES SUSPENDED (EMERGENCY)'
+        : 'ГРАФИКИ НЕ ДЕЙСТВУЮТ (АВАРИЙНЫЙ РЕЖИМ)';
+      countEl.style.color = gridUp ? 'var(--green)' : 'var(--amber)';
+
+      if (curSlot) {
+        const isPlanOff = curSlot.type === 'Definite';
+        const totalSlotMin = Math.max(1, curSlot.end - curSlot.start);
+        const elapsedMin = Math.max(0, nowMin - curSlot.start);
+        const pctDone = Math.min(100, Math.round((elapsedMin / totalSlotMin) * 100));
+        spanEl.textContent = isEn()
+          ? `Baseline: ${minToHM(curSlot.start)} — ${minToHM(curSlot.end)}`
+          : `План 33.1: ${minToHM(curSlot.start)} — ${minToHM(curSlot.end)}`;
+        barEl.style.width = `${pctDone}%`;
+        barEl.style.background = gridUp ? 'var(--green)' : 'var(--amber)';
+
+        const idx = todaySlots.indexOf(curSlot);
+        const nextOnSlot = todaySlots.slice(idx).find(s => s.type !== 'Definite' && s.end > nowMin);
+        if (nextOnSlot) {
+          nextEl.textContent = isEn()
+            ? `Baseline slot for group ${sched.group || '33.1'}: power window ${minToHM(nextOnSlot.start)} — ${minToHM(nextOnSlot.end)}`
+            : `Ориентир по обычному графику ${sched.group || '33.1'}: окно со светом ${minToHM(nextOnSlot.start)} — ${minToHM(nextOnSlot.end)}`;
+          nextEl.style.color = 'var(--muted)';
+        } else {
+          nextEl.textContent = isEn()
+            ? 'Hourly schedules are temporarily overridden by Ukrenergo / DTEK'
+            : 'Почасовые слоты временно отменены командой Укрэнерго / ДТЕК';
+          nextEl.style.color = 'var(--muted)';
+        }
+      } else {
+        spanEl.textContent = isEn() ? 'NO TIMETABLE' : 'ВНЕ ГРАФИКА';
+        barEl.style.width = '100%';
+        barEl.style.background = gridUp ? 'var(--green)' : 'var(--amber)';
+        nextEl.textContent = isEn()
+          ? 'Hourly schedules are temporarily overridden by Ukrenergo / DTEK'
+          : 'Почасовые слоты временно отменены командой Укрэнерго / ДТЕК';
+        nextEl.style.color = 'var(--muted)';
+      }
+
+      if (gridUp) {
+        const v = (d.smartLife && d.smartLife.socket1 && d.smartLife.socket1.voltageV) ? `${d.smartLife.socket1.voltageV.toFixed(0)}V` : '220V';
+        factEl.textContent = isEn()
+          ? `⚡ LIVE (socket_1): GRID ONLINE (${v}) despite emergency mode`
+          : `⚡ ФАКТ (socket_1): СВЕТ СЕЙЧАС ЕСТЬ (${v}) несмотря на экстренные`;
+        factEl.style.color = 'var(--green)';
+      } else {
+        const darkDur = fmtDur(d.darkDurationSec || 0);
+        factEl.textContent = isEn()
+          ? `🔴 LIVE (socket_1): Grid offline (${darkDur}) • Emergency mode`
+          : `🔴 ФАКТ (socket_1): света нет (${darkDur}) • Экстренное отключение`;
+        factEl.style.color = 'var(--red)';
+      }
+    } else if (curSlot) {
       const isOff = curSlot.type === 'Definite';
       let effStart = curSlot.start;
       let effEnd = curSlot.end;
@@ -2632,12 +2705,6 @@
       const elapsedMin = Math.max(0, nowMin - effStart);
       const remainMin = Math.max(0, effEnd - nowMin);
       const pctDone = Math.min(100, Math.round((elapsedMin / totalSlotMin) * 100));
-
-      const tagEl = document.getElementById('dtHeroTag');
-      const spanEl = document.getElementById('dtHeroSlotSpan');
-      const countEl = document.getElementById('dtHeroCountdown');
-      const nextEl = document.getElementById('dtHeroNextInfo');
-      const barEl = document.getElementById('dtHeroBar');
 
       spanEl.textContent = `${minToHM(effStart)} — ${minToHM(effEnd)} (${fmtDurMin(totalSlotMin)})`;
       barEl.style.width = `${pctDone}%`;
@@ -2682,9 +2749,6 @@
         }
       }
 
-      // Compare Schedule vs Actual socket_1 state
-      const gridUp = !!(d.smartLife && d.smartLife.gridOnline);
-      const factEl = document.getElementById('dtFactMatch');
       if (isOff && !gridUp) {
         factEl.textContent = isEn() ? 'Live (socket_1): grid offline (matches schedule)' : 'Факт (socket_1): света нет (по графику)';
         factEl.style.color = 'var(--muted)';
@@ -2703,15 +2767,17 @@
     // Render Today & Tomorrow Cards
     const todayDateStr = todayObj.date ? `${todayObj.date.slice(8,10)}.${todayObj.date.slice(5,7)}` : fmtDateDM(nowMs);
     document.getElementById('dtTodayTitle').textContent = isEn()
-      ? `TODAY (${todayDateStr}) // HOURLY SCHEDULE`
-      : `СЕГОДНЯ (${todayDateStr}) // ГРАФИК ПО ЧАСАМ`;
+      ? (isEmergency ? `TODAY (${todayDateStr}) // BASELINE (EMERGENCY)` : `TODAY (${todayDateStr}) // HOURLY SCHEDULE`)
+      : (isEmergency ? `СЕГОДНЯ (${todayDateStr}) // ОРИЕНТИР (ЭКСТРЕННЫЕ)` : `СЕГОДНЯ (${todayDateStr}) // ГРАФИК ПО ЧАСАМ`);
     renderDtekDayBlock(
-      todaySlots,
+      rawTodaySlots,
       tomorrowSlots,
       'dtTodaySummary',
       'dtTodayTrack',
       'dtTodayList',
-      nowMin
+      nowMin,
+      todayObj.status || '',
+      fallbackTodaySlots
     );
 
     const tmrwDateStr = tomorrowObj.date ? `${tomorrowObj.date.slice(8,10)}.${tomorrowObj.date.slice(5,7)}` : (isEn() ? 'TOMORROW' : 'ЗАВТРА');
@@ -2719,16 +2785,18 @@
       ? `TOMORROW (${tmrwDateStr}) // HOURLY SCHEDULE`
       : `ЗАВТРА (${tmrwDateStr}) // ГРАФИК ПО ЧАСАМ`;
     renderDtekDayBlock(
-      tomorrowSlots,
+      rawTomorrowSlots,
       [],
       'dtTomorrowSummary',
       'dtTomorrowTrack',
       'dtTomorrowList',
-      -1
+      -1,
+      tomorrowObj.status || '',
+      fallbackTomorrowSlots
     );
   }
 
-  function renderDtekDayBlock(slots, nextDaySlots, sumId, trackId, listId, nowMin) {
+  function renderDtekDayBlock(rawSlots, nextDaySlots, sumId, trackId, listId, nowMin, status, fallbackSlots) {
     const sumEl = document.getElementById(sumId);
     const trackEl = document.getElementById(trackId);
     const listEl = document.getElementById(listId);
@@ -2737,10 +2805,34 @@
     trackEl.innerHTML = '';
     listEl.innerHTML = '';
 
+    const isEmergency = (status === 'EmergencyShutdowns');
+    const usingFallback = (!rawSlots || rawSlots.length === 0) && (fallbackSlots && fallbackSlots.length > 0);
+    const slots = (rawSlots && rawSlots.length > 0) ? rawSlots : (fallbackSlots || []);
+
     if (!slots || slots.length === 0) {
-      sumEl.textContent = isEn() ? 'Awaiting DTEK publication' : 'Ожидание публикации ДТЕК';
-      listEl.innerHTML = `<div style="font-family:var(--mono); font-size:10px; color:var(--muted); padding:6px;">${isEn() ? 'Schedule for this day has not been published by DTEK yet.' : 'График на этот день ещё не опубликован ДТЕК.'}</div>`;
+      if (isEmergency) {
+        sumEl.textContent = isEn() ? '⚠️ Emergency Shutdowns' : '⚠️ Экстренные отключения';
+        sumEl.style.color = 'var(--amber)';
+        listEl.innerHTML = `<div style="font-family:var(--mono); font-size:10px; color:var(--amber); padding:7px; background:rgba(255,152,48,0.08); border:1px solid rgba(255,152,48,0.3); border-radius:4px;">${
+          isEn()
+            ? '⚠️ DTEK Emergency Shutdowns are in effect. Hourly schedules for this day have not been published.'
+            : '⚠️ Действуют экстренные отключения ДТЕК. Почасовой график на этот день не опубликован.'
+        }</div>`;
+      } else {
+        sumEl.textContent = isEn() ? 'Awaiting DTEK publication' : 'Ожидание публикации ДТЕК';
+        sumEl.style.color = '';
+        listEl.innerHTML = `<div style="font-family:var(--mono); font-size:10px; color:var(--muted); padding:6px;">${isEn() ? 'Schedule for this day has not been published by DTEK yet.' : 'График на этот день ещё не опубликован ДТЕК.'}</div>`;
+      }
       return;
+    }
+
+    if (isEmergency && usingFallback) {
+      const warnBanner = document.createElement('div');
+      warnBanner.style.cssText = 'font-family:var(--mono); font-size:10px; color:var(--amber); padding:6px 8px; margin-bottom:6px; background:rgba(255,152,48,0.09); border:1px solid rgba(255,152,48,0.32); border-radius:4px;';
+      warnBanner.textContent = isEn()
+        ? '⚠️ Emergency shutdowns active — official timetable suspended. Showing saved baseline schedule for reference:'
+        : '⚠️ Введены экстренные отключения — почасовой график официально не действует. Ниже сохранённый плановый график группы для ориентира:';
+      listEl.appendChild(warnBanner);
     }
 
     let onMin = 0, offMin = 0;
@@ -2764,9 +2856,10 @@
       trackEl.appendChild(marker);
     }
 
+    sumEl.style.color = isEmergency ? 'var(--amber)' : '';
     sumEl.textContent = isEn()
-      ? `🟢 On: ${fmtDurMin(onMin)} • 🔴 Off: ${fmtDurMin(offMin)}`
-      : `🟢 Свет: ${fmtDurMin(onMin)} • 🔴 Откл: ${fmtDurMin(offMin)}`;
+      ? `${isEmergency ? '⚠️ Plan: ' : ''}🟢 On: ${fmtDurMin(onMin)} • 🔴 Off: ${fmtDurMin(offMin)}`
+      : `${isEmergency ? '⚠️ План: ' : ''}🟢 Свет: ${fmtDurMin(onMin)} • 🔴 Откл: ${fmtDurMin(offMin)}`;
 
     slots.forEach((s, idx) => {
       const isOff = s.type === 'Definite';
@@ -2781,12 +2874,13 @@
           : ` <span style="color:var(--amber);">→ до ${minToHM(nextDaySlots[0].end)} ночи (всего ${fmtDurMin(stitchedDur)})</span>`;
       }
 
+      const planSuffix = (isEmergency && usingFallback) ? (isEn() ? ' (BASELINE)' : ' (ПО ПЛАНУ)') : '';
       const row = document.createElement('div');
       row.className = 'dtek-slot ' + (isOff ? 'slot-off' : 'slot-on') + (isNow ? ' slot-now' : '');
       row.innerHTML = `
         <div>
           <div style="font-weight:700; color:${isOff ? 'var(--red)' : 'var(--green)'};">
-            ${isOff ? (isEn() ? '🔴 OUTAGE' : '🔴 ОТКЛЮЧЕНИЕ') : (isEn() ? '🟢 POWER ON' : '🟢 СВЕТ ЕСТЬ')}
+            ${isOff ? (isEn() ? '🔴 OUTAGE' : '🔴 ОТКЛЮЧЕНИЕ') : (isEn() ? '🟢 POWER ON' : '🟢 СВЕТ ЕСТЬ')}${planSuffix}
             ${isNow ? `<span style="background:var(--cyan); color:#000; padding:1px 5px; font-size:9px; margin-left:6px; border-radius:2px;">${isEn() ? 'NOW' : 'СЕЙЧАС'}</span>` : ''}
           </div>
           <div style="color:var(--text); margin-top:2px;">

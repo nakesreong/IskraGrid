@@ -63,39 +63,58 @@ class IskraEngine private constructor(context: Context) {
     }
 
     private fun seedDefaultDtekSchedule() {
-        if (prefs.contains("dtek_schedule_json")) return
+        val slotsNov10 = """[{"start":0,"end":210,"type":"Definite"},{"start":210,"end":450,"type":"NotPlanned"},{"start":450,"end":900,"type":"Definite"},{"start":900,"end":1050,"type":"NotPlanned"},{"start":1050,"end":1440,"type":"Definite"}]"""
+        if (!prefs.contains("dtek_slots_2026-11-10")) {
+            prefs.edit().putString("dtek_slots_2026-11-10", slotsNov10).apply()
+        }
+        // Also ensure existing cached dtek_schedule_json has fallbackSlots attached if slots is empty
+        val existing = prefs.getString("dtek_schedule_json", null)
+        if (!existing.isNullOrEmpty()) {
+            try {
+                val obj = JSONObject(existing)
+                attachFallbackSlots(obj)
+                prefs.edit().putString("dtek_schedule_json", obj.toString()).apply()
+            } catch (_: Exception) {}
+            return
+        }
         val seed = """
         {
           "today": {
-            "slots": [
-              {"start": 0, "end": 120, "type": "NotPlanned"},
-              {"start": 120, "end": 450, "type": "Definite"},
-              {"start": 450, "end": 630, "type": "NotPlanned"},
-              {"start": 630, "end": 1080, "type": "Definite"},
-              {"start": 1080, "end": 1200, "type": "NotPlanned"},
-              {"start": 1200, "end": 1440, "type": "Definite"}
-            ],
-            "date": "2026-11-09T00:00:00+02:00",
-            "status": "ScheduleApplies"
-          },
-          "tomorrow": {
-            "slots": [
-              {"start": 0, "end": 210, "type": "Definite"},
-              {"start": 210, "end": 450, "type": "NotPlanned"},
-              {"start": 450, "end": 900, "type": "Definite"},
-              {"start": 900, "end": 1050, "type": "NotPlanned"},
-              {"start": 1050, "end": 1440, "type": "Definite"}
-            ],
+            "slots": $slotsNov10,
             "date": "2026-11-10T00:00:00+02:00",
             "status": "ScheduleApplies"
           },
-          "updatedOn": "2026-11-09T19:43:29+00:00",
+          "tomorrow": {
+            "slots": [],
+            "date": "2026-11-11T00:00:00+02:00",
+            "status": "WaitingForSchedule"
+          },
+          "updatedOn": "2026-11-10T08:32:21+00:00",
           "group": "${secrets.dtekDefaultGroup}",
           "address": "${secrets.dtekAddressLabel}",
           "fetchedAtMs": ${System.currentTimeMillis()}
         }
         """.trimIndent()
         prefs.edit().putString("dtek_schedule_json", seed).apply()
+    }
+
+    private fun attachFallbackSlots(schedObj: JSONObject) {
+        for (dayKey in listOf("today", "tomorrow")) {
+            val dayObj = schedObj.optJSONObject(dayKey) ?: continue
+            val dateIso = dayObj.optString("date", "").take(10)
+            if (dateIso.isEmpty()) continue
+            val slots = dayObj.optJSONArray("slots") ?: JSONArray()
+            if (slots.length() > 0) {
+                prefs.edit().putString("dtek_slots_$dateIso", slots.toString()).apply()
+            } else {
+                val cached = prefs.getString("dtek_slots_$dateIso", null)
+                if (!cached.isNullOrEmpty()) {
+                    try {
+                        dayObj.put("fallbackSlots", JSONArray(cached))
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     fun forceFetchDtekSchedule() {
@@ -882,6 +901,7 @@ class IskraEngine private constructor(context: Context) {
                     mySched.put("group", groupKey)
                     mySched.put("address", secrets.dtekAddressLabel)
                     mySched.put("fetchedAtMs", System.currentTimeMillis())
+                    attachFallbackSlots(mySched)
                     prefs.edit().putString("dtek_schedule_json", mySched.toString()).apply()
                     notifySnapshot()
                 }
